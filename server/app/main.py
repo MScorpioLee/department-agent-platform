@@ -20,11 +20,14 @@ from .registry import RunnerHub
 def _load_models_config(path: str | None) -> dict | None:
     if not path:
         return None
+    import os
     import pathlib
 
     import yaml
 
-    return yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
+    # 支持 ${ENV_VAR} 插值,使 api_key 等敏感值只存在于环境变量,不落盘到配置文件
+    text = os.path.expandvars(pathlib.Path(path).read_text(encoding="utf-8"))
+    return yaml.safe_load(text)
 
 
 async def _sweep_loop(app: FastAPI) -> None:

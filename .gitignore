@@ -10,6 +10,7 @@ venv/
 .env
 runner_state.json
 config.yaml
+models.yaml
 node_modules/
 .next/
 out/
