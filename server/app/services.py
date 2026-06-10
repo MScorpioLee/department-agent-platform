@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from .agent import run_agent_turn
 from .model_gateway import ModelError
-from .models import Machine, Message, Session, Task, ToolCall, new_id, utcnow
+from .models import Machine, Message, ModelUsage, Session, Task, ToolCall, new_id, utcnow
 from .tool_specs import TOOL_NAMES, specs_for
 
 log = logging.getLogger("agent_runner.services")
@@ -141,9 +141,15 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
     tools = specs_for(machine_caps)
 
     seq_counter = {"v": next_seq}
+    usage_acc = {"prompt": 0, "completion": 0, "total": 0}
 
     async def chat_fn(msgs: list[dict]) -> dict:
-        return await gateway.chat(backend, msgs, tools)
+        completion = await gateway.chat(backend, msgs, tools)
+        u = completion.get("usage") or {}
+        usage_acc["prompt"] += int(u.get("prompt_tokens") or 0)
+        usage_acc["completion"] += int(u.get("completion_tokens") or 0)
+        usage_acc["total"] += int(u.get("total_tokens") or 0)
+        return completion
 
     executor = _make_executor(app, machine_for_exec, session_id)
 
@@ -185,5 +191,22 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         )
     except ModelError as exc:
         raise HTTPException(503, {"code": exc.code, "message": exc.message})
+
+    # 记录本轮模型用量(支撑按用户/订阅的审计与配额观察)
+    if usage_acc["total"] or usage_acc["prompt"]:
+        async with sessionmaker() as s:
+            s.add(
+                ModelUsage(
+                    id=new_id("mu"),
+                    session_id=session_id,
+                    user_id=user_id,
+                    backend_id=getattr(backend, "id", None),
+                    model=getattr(backend, "model", None),
+                    prompt_tokens=usage_acc["prompt"],
+                    completion_tokens=usage_acc["completion"],
+                    total_tokens=usage_acc["total"] or (usage_acc["prompt"] + usage_acc["completion"]),
+                )
+            )
+            await s.commit()
 
     return {"reply": result["content"], "steps": result["steps"], "stopped": result["stopped"]}

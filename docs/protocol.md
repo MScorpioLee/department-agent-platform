@@ -180,6 +180,11 @@ POST /api/users         {username,password,role} → 创建用户(admin)
 POST /api/enrollment-tokens {owner_user_id?,max_uses,expires_in_days} → {enrollment_token}  (admin)
 POST /api/machines/{id}/assign {user_id}         → 重新分配机器归属(admin)
 
+GET  /api/audit/usage?user_id=                    → token 用量按 user/backend 聚合(admin)
+GET  /api/audit/sessions?user_id=&limit=          → 会话列表含消息数(admin)
+GET  /api/audit/tool-calls?session_id=&machine_id= → 工具调用审计,脱敏(admin)
+GET  /api/audit/commands?machine_id=&limit=       → remote_exec 命令与输出,脱敏(admin)
+
 GET  /api/machines                      → [{machine_id, machine_name, owner_user_id, os, status, last_seen_at, capabilities}]
 POST /api/tasks                         body: {machine_id, tool, payload}
                                         → {task_id, status}   (status 为当前状态,通常是 dispatched)

@@ -59,7 +59,10 @@ blocked_paths:
 ## 4. 输出与日志
 
 - 命令输出每流上限 1 MiB,防日志爆炸与敏感数据大批量外带。
-- secret redaction:日志入库前对常见凭据形态(API key、Bearer token、私钥块)打码。
+- secret redaction:对常见凭据形态(API key、Bearer token、私钥块、password/secret 键值)打码。
+  - **两条数据路径**:功能性输出(资源所有者在控制台看自己机器的 stdout)保留原文,否则无法调试;
+    面向管理员的跨用户审计接口(`/api/audit/*`)在**读路径统一脱敏**。
+  - 脱敏是尽力而为的纵深防御,不替代前置控制(Runner 低权限账号运行 + 不读敏感路径)。
 - 日志访问受权限控制,保存周期可配置;审计表不可被业务代码 UPDATE/DELETE。
 
 ## 5. 审计内容
