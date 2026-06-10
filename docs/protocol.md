@@ -41,6 +41,10 @@ Authorization: Bearer <enrollment_token>
 Runner 将 `machine_id` + `runner_token` 写入本地状态文件(`runner_state.json`,权限 0600)。
 enrollment token 可设使用次数与有效期;runner_token 可由管理员吊销。
 
+enrollment token 可**绑定 owner**:管理员用 `POST /api/enrollment-tokens {owner_user_id, max_uses, expires_in_days}`
+签发,用此 token 注册的机器自动归属该用户;不绑定(或用静态兜底 token)则注册为**无主**,需管理员
+`POST /api/machines/{id}/assign` 分配。机器归属决定谁能操作该机器(见 security.md)。
+
 ### 1.2 WebSocket 连接
 
 ```text
@@ -165,10 +169,18 @@ Runner 终止进程(先 SIGTERM,5 秒后 SIGKILL),回 `task_result` 且 `status:
 
 ## 5. REST API 契约(WebUI / 管理用,已冻结 v1)
 
-MVP 阶段使用静态 API Key 头(`X-API-Key`),用户系统(M4)上线后替换为会话认证,路径与响应结构不变。
+认证(M4 起为**双通道**,二选一):
+- `Authorization: Bearer <auth_token>` —— 用户登录态,按机器归属受限(普通用户只能访问自己名下机器)。
+- `X-API-Key: <key>` —— 管理/服务通道,等同管理员,可见全部(向后兼容 WebUI MVP)。
 
 ```text
-GET  /api/machines                      → [{machine_id, machine_name, os, status, last_seen_at, capabilities}]
+POST /api/auth/login    {username, password}     → {token, user:{id,username,role}}
+GET  /api/auth/me                                → {id, username, display_name, role}
+POST /api/users         {username,password,role} → 创建用户(admin)
+POST /api/enrollment-tokens {owner_user_id?,max_uses,expires_in_days} → {enrollment_token}  (admin)
+POST /api/machines/{id}/assign {user_id}         → 重新分配机器归属(admin)
+
+GET  /api/machines                      → [{machine_id, machine_name, owner_user_id, os, status, last_seen_at, capabilities}]
 POST /api/tasks                         body: {machine_id, tool, payload}
                                         → {task_id, status}   (status 为当前状态,通常是 dispatched)
 GET  /api/tasks/{task_id}               → {task_id, machine_id, tool, payload, status, result, created_at, finished_at}

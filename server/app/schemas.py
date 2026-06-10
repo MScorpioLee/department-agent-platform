@@ -34,3 +34,13 @@ class UserCreateIn(BaseModel):
     password: str = Field(min_length=6)
     display_name: str | None = None
     role: str = Field(default="user", pattern="^(user|admin)$")
+
+
+class EnrollmentTokenIn(BaseModel):
+    owner_user_id: str | None = None  # 绑定机器归属;None=无主
+    max_uses: int = Field(default=1, ge=0)  # 0=不限次
+    expires_in_days: int = Field(default=7, ge=1)
+
+
+class AssignMachineIn(BaseModel):
+    user_id: str | None  # None=置为无主

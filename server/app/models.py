@@ -25,6 +25,7 @@ class Machine(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     machine_name: Mapped[str] = mapped_column(String(255))
+    owner_user_id: Mapped[str | None] = mapped_column(String(64), index=True)  # None=无主,待管理员分配
     os: Mapped[str | None] = mapped_column(String(32))
     arch: Mapped[str | None] = mapped_column(String(32))
     runner_version: Mapped[str | None] = mapped_column(String(32))
@@ -110,3 +111,15 @@ class AuthToken(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # 只存哈希,可吊销
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EnrollmentToken(Base):
+    __tablename__ = "enrollment_tokens"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    owner_user_id: Mapped[str | None] = mapped_column(String(64))  # 注册的机器归属该用户;None=无主
+    max_uses: Mapped[int] = mapped_column(default=1)  # 0=不限次
+    used_count: Mapped[int] = mapped_column(default=0)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
