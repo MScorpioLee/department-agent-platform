@@ -55,3 +55,13 @@ while True:
 - Runner:Python 3.11+(websockets、httpx、pydantic、pyyaml);正式版可换 Go 单文件
 - Web:Next.js、React、Tailwind、shadcn/ui、Monaco、xterm.js
 - 模型 ID 以各厂商当前版本为准(如 `claude-sonnet-4-6`、`claude-opus-4-8`;OpenAI 侧以实际发布的 Codex/GPT 模型 ID 为准),写入配置而非硬编码
+
+## 客户端形态(多端)
+
+同一套 REST + WS 契约服务所有客户端;客户端只做展示与交互,**不做任何安全决策**(权限、审批、路径校验全部在 Server / Runner 侧)。
+
+- **WebUI**(Next.js)— 第一优先级(M4,任务卡 T-WEB-01)
+- **桌面客户端**(Windows / macOS / Linux)— Tauri 2 壳复用 `web/` 的同一 React 前端,增加系统托盘、任务完成通知、凭据存 OS keychain。**排在用户系统(M4)之后**:分发到员工电脑的客户端必须使用按用户登录的会话凭据,不允许内置共享 API Key(任务卡 T-DESK-01)
+- **移动端** — 远期,同一 API,暂不排期
+
+为支撑多端复用,前端的 API 访问必须收敛到单一传输层模块(见 T-WEB-01 约定),桌面端只替换传输层(Next 代理 → 直连 Server)。

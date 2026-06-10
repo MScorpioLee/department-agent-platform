@@ -13,6 +13,7 @@
 - Next.js 14+(App Router)+ TypeScript
 - Tailwind CSS + shadcn/ui
 - 不引入额外状态管理库(用 React 内置即可);轮询用 SWR 或自写 hook 均可
+- **所有 API 调用收敛到单一模块 `web/lib/api-client.ts`**,页面/组件不得散落 fetch——后续桌面客户端(Tauri,T-DESK-01)会复用本前端,仅替换该传输层(代理 → 直连)
 
 ## 3. 后端 API 契约(已冻结,不得自行增改字段)
 
@@ -93,4 +94,4 @@ MOCK_API=1                             # 开发期
 
 ## 8. 明确不做(后续任务卡)
 
-登录页、用户系统、聊天界面、WebSocket 实时推送(本期全部轮询)、任务取消按钮、审批流。
+登录页、用户系统、聊天界面、WebSocket 实时推送(本期全部轮询)、任务取消按钮、审批流、桌面端打包(Tauri,见 T-DESK-01)。
