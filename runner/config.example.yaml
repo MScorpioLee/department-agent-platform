@@ -1,0 +1,13 @@
+# Runner 配置示例。复制为 config.yaml 后修改。
+# 安全注意:allowed_roots / blocked_paths 只在本地生效,服务器无法远程修改(docs/security.md §2)
+
+server_url: http://127.0.0.1:8700
+machine_name: my-machine
+enrollment_token: dev-enroll-token   # 仅首次注册用,注册后可删除
+
+allowed_roots:
+  - ~/projects
+
+blocked_paths: []
+
+heartbeat_interval_seconds: 10
