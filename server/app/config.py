@@ -13,3 +13,6 @@ class Settings(BaseSettings):
     heartbeat_timeout_seconds: float = 30.0
     sweep_interval_seconds: float = 5.0
     output_cap_bytes: int = 1024 * 1024
+    # 模型网关配置文件(YAML);为空时无可用模型后端,会话消息接口会报 no_backend
+    models_config_path: str | None = None
+    tool_wait_timeout_seconds: float = 130.0

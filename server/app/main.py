@@ -12,8 +12,19 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from . import routes, ws
 from .config import Settings
 from .db import Base
+from .model_gateway import build_gateway
 from .models import ACTIVE_TASK_STATUSES, Machine, Task, utcnow
 from .registry import RunnerHub
+
+
+def _load_models_config(path: str | None) -> dict | None:
+    if not path:
+        return None
+    import pathlib
+
+    import yaml
+
+    return yaml.safe_load(pathlib.Path(path).read_text(encoding="utf-8"))
 
 
 async def _sweep_loop(app: FastAPI) -> None:
@@ -61,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.sessionmaker = sessionmaker
     app.state.hub = RunnerHub(settings.output_cap_bytes)
+    app.state.gateway = build_gateway(_load_models_config(settings.models_config_path))
     app.include_router(routes.router)
     app.include_router(ws.router)
 

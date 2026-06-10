@@ -1,0 +1,23 @@
+# 模型网关配置示例。用 AGENT_MODELS_CONFIG_PATH 指向本文件即可启用模型对话。
+# backend 底层可以是 Hermes/OpenClaw OAuth 代理(开发期)、合规 API key 或本地模型,对上层统一。
+
+backends:
+  # 例:Hermes proxy 暴露的 Codex(ChatGPT 订阅)端点
+  - id: codex-sub1
+    base_url: http://127.0.0.1:11500/v1
+    model: gpt-5.1-codex      # 以 hermes proxy 实际暴露的 model 名为准
+    api_key: hermes-proxy     # OAuth 代理通常忽略此值,占位即可
+    max_concurrency: 2
+
+  # 例:再挂一个订阅做容量/隔离
+  # - id: codex-sub2
+  #   base_url: http://127.0.0.1:11501/v1
+  #   model: gpt-5.1-codex
+  #   max_concurrency: 2
+
+# 用户 → backend 路由(静态分配最利于审计)。未列出的用户落到 default_backend_id。
+user_routes:
+  # alice: codex-sub1
+  # bob: codex-sub2
+
+default_backend_id: codex-sub1

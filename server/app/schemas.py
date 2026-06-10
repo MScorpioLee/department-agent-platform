@@ -12,3 +12,13 @@ class TaskIn(BaseModel):
     machine_id: str
     tool: str
     payload: dict = Field(default_factory=dict)
+
+
+class SessionIn(BaseModel):
+    machine_id: str
+    title: str | None = None
+    user_id: str = "default"
+
+
+class MessageIn(BaseModel):
+    content: str = Field(min_length=1)

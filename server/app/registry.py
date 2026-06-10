@@ -52,6 +52,8 @@ class RunnerHub:
         self._output_cap = output_cap_bytes
         self.conns: dict[str, RunnerConn] = {}
         self.buffers: dict[str, OutputBuffer] = {}
+        # task_id → Future:Agent Loop 下发任务后在此等待终态信号
+        self.task_waiters: dict[str, asyncio.Future] = {}
 
     def is_online(self, machine_id: str) -> bool:
         return machine_id in self.conns
@@ -93,3 +95,25 @@ class RunnerHub:
 
     def close_buffer(self, task_id: str) -> OutputBuffer:
         return self.buffers.pop(task_id, None) or OutputBuffer(self._output_cap)
+
+    # ---- 任务等待(Agent Loop 同步下发用)----
+
+    def expect(self, task_id: str) -> None:
+        self.task_waiters[task_id] = asyncio.get_running_loop().create_future()
+
+    def resolve(self, task_id: str) -> None:
+        fut = self.task_waiters.pop(task_id, None)
+        if fut is not None and not fut.done():
+            fut.set_result(True)
+
+    async def wait(self, task_id: str, timeout: float) -> bool:
+        fut = self.task_waiters.get(task_id)
+        if fut is None:
+            return True
+        try:
+            await asyncio.wait_for(asyncio.shield(fut), timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            self.task_waiters.pop(task_id, None)

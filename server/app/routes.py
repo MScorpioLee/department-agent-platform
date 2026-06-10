@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from .auth import check_enrollment_token, hash_token, new_runner_token, require_api_key
-from .models import Machine, Task, new_id, utcnow
-from .schemas import EnrollIn, TaskIn
+from .models import Machine, Message, Session, Task, new_id, utcnow
+from .schemas import EnrollIn, MessageIn, SessionIn, TaskIn
+from .services import run_session_turn
 
 router = APIRouter()
 
@@ -138,6 +139,48 @@ async def get_task_output(task_id: str, request: Request) -> dict:
     if task is None:
         raise HTTPException(404, {"code": "task_not_found", "message": "任务不存在"})
     return {"stdout": task.stdout, "stderr": task.stderr, "truncated": task.truncated}
+
+
+@router.post("/api/sessions", dependencies=[Depends(require_api_key)])
+async def create_session(body: SessionIn, request: Request) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        machine = await session.get(Machine, body.machine_id)
+        if machine is None:
+            raise HTTPException(404, {"code": "machine_not_found", "message": "机器不存在"})
+        sess = Session(id=new_id("s"), user_id=body.user_id, machine_id=body.machine_id, title=body.title)
+        session.add(sess)
+        await session.commit()
+    return {"session_id": sess.id, "machine_id": sess.machine_id, "status": sess.status}
+
+
+@router.post("/api/sessions/{session_id}/messages", dependencies=[Depends(require_api_key)])
+async def post_message(session_id: str, body: MessageIn, request: Request) -> dict:
+    # run_session_turn 内部已校验会话存在并处理 ModelError
+    return await run_session_turn(request.app, session_id, body.content)
+
+
+@router.get("/api/sessions/{session_id}/messages", dependencies=[Depends(require_api_key)])
+async def list_messages(session_id: str, request: Request) -> list[dict]:
+    async with request.app.state.sessionmaker() as session:
+        sess = await session.get(Session, session_id)
+        if sess is None:
+            raise HTTPException(404, {"code": "session_not_found", "message": "会话不存在"})
+        rows = (
+            await session.execute(
+                select(Message).where(Message.session_id == session_id).order_by(Message.seq)
+            )
+        ).scalars().all()
+    return [
+        {
+            "seq": m.seq,
+            "role": m.role,
+            "content": m.content,
+            "tool_calls": m.tool_calls,
+            "tool_call_id": m.tool_call_id,
+            "created_at": _iso(m.created_at),
+        }
+        for m in rows
+    ]
 
 
 @router.post("/api/tasks/{task_id}/cancel", dependencies=[Depends(require_api_key)])

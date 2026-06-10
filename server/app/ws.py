@@ -16,6 +16,13 @@ log = logging.getLogger(__name__)
 async def mark_machine_lost(app, machine_id: str) -> None:
     """机器断线:状态置 offline,该机所有非终态任务置 lost(不自动重试,见 protocol.md §3.1)。"""
     async with app.state.sessionmaker() as session:
+        lost_ids = (
+            await session.execute(
+                select(Task.id).where(
+                    Task.machine_id == machine_id, Task.status.in_(ACTIVE_TASK_STATUSES)
+                )
+            )
+        ).scalars().all()
         await session.execute(update(Machine).where(Machine.id == machine_id).values(status="offline"))
         await session.execute(
             update(Task)
@@ -23,6 +30,9 @@ async def mark_machine_lost(app, machine_id: str) -> None:
             .values(status="lost", finished_at=utcnow())
         )
         await session.commit()
+    # 唤醒所有在等这些任务的 Agent Loop,避免永久挂起
+    for tid in lost_ids:
+        app.state.hub.resolve(tid)
 
 
 @router.websocket("/ws/runner")
@@ -122,6 +132,7 @@ async def runner_ws(ws: WebSocket) -> None:
                         )
                     )
                     await session.commit()
+                hub.resolve(task_id)  # 唤醒等待该任务的 Agent Loop
 
             else:
                 log.warning("机器 %s 发来未知帧类型: %s", machine.id, ftype)

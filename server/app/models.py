@@ -51,3 +51,41 @@ class Task(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # M4 用户系统上线前,user_id 暂用占位值 "default"
+    user_id: Mapped[str] = mapped_column(String(64), default="default", index=True)
+    machine_id: Mapped[str] = mapped_column(ForeignKey("machines.id"), index=True)
+    title: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"), index=True)
+    seq: Mapped[int] = mapped_column(default=0, index=True)  # 会话内顺序
+    role: Mapped[str] = mapped_column(String(16))  # user/assistant/tool
+    content: Mapped[str] = mapped_column(Text, default="")
+    tool_calls: Mapped[list | None] = mapped_column(JSON)  # assistant 发起的工具调用
+    tool_call_id: Mapped[str | None] = mapped_column(String(64))  # tool 消息对应的调用
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ToolCall(Base):
+    __tablename__ = "tool_calls"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"), index=True)
+    machine_id: Mapped[str] = mapped_column(String(64))
+    tool_name: Mapped[str] = mapped_column(String(64))
+    arguments_json: Mapped[dict | None] = mapped_column(JSON)
+    result_json: Mapped[dict | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16))  # completed/failed
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
