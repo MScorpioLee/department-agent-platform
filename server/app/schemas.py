@@ -22,3 +22,15 @@ class SessionIn(BaseModel):
 
 class MessageIn(BaseModel):
     content: str = Field(min_length=1)
+
+
+class LoginIn(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class UserCreateIn(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6)
+    display_name: str | None = None
+    role: str = Field(default="user", pattern="^(user|admin)$")

@@ -11,6 +11,8 @@ def client(tmp_path):
         database_url=f"sqlite+aiosqlite:///{tmp_path}/test.db",
         enrollment_token="test-enroll",
         api_key="test-key",
+        admin_username="admin",
+        admin_password="adminpass",
     )
     app = create_app(settings)
     with TestClient(app) as c:

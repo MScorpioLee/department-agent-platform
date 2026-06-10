@@ -6,14 +6,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from . import routes, ws
+from .auth import hash_password
 from .config import Settings
 from .db import Base
 from .model_gateway import build_gateway
-from .models import ACTIVE_TASK_STATUSES, Machine, Task, utcnow
+from .models import ACTIVE_TASK_STATUSES, Machine, Task, User, new_id, utcnow
 from .registry import RunnerHub
 
 
@@ -60,6 +61,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 .where(Task.status.in_(ACTIVE_TASK_STATUSES))
                 .values(status="lost", finished_at=utcnow())
             )
+            # seed 管理员(幂等:仅当配置了凭据且用户不存在时创建)
+            if settings.admin_username and settings.admin_password:
+                exists = (
+                    await session.execute(select(User).where(User.username == settings.admin_username))
+                ).scalar_one_or_none()
+                if exists is None:
+                    session.add(
+                        User(
+                            id=new_id("u"),
+                            username=settings.admin_username,
+                            display_name=settings.admin_username,
+                            role="admin",
+                            password_hash=hash_password(settings.admin_password),
+                        )
+                    )
             await session.commit()
         sweeper = asyncio.create_task(_sweep_loop(app))
         try:

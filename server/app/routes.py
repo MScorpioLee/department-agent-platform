@@ -1,11 +1,21 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
-from .auth import check_enrollment_token, hash_token, new_runner_token, require_api_key
-from .models import Machine, Message, Session, Task, new_id, utcnow
-from .schemas import EnrollIn, MessageIn, SessionIn, TaskIn
+from .auth import (
+    check_enrollment_token,
+    hash_password,
+    hash_token,
+    new_auth_token,
+    new_runner_token,
+    require_admin,
+    require_api_key,
+    require_user,
+    verify_password,
+)
+from .models import AuthToken, Machine, Message, Session, Task, User, new_id, utcnow
+from .schemas import EnrollIn, LoginIn, MessageIn, SessionIn, TaskIn, UserCreateIn
 from .services import run_session_turn
 
 router = APIRouter()
@@ -45,6 +55,66 @@ def _task_out(t: Task) -> dict:
         "created_at": _iso(t.created_at),
         "finished_at": _iso(t.finished_at),
     }
+
+
+def _user_out(u: User) -> dict:
+    return {"id": u.id, "username": u.username, "display_name": u.display_name, "role": u.role}
+
+
+@router.post("/api/auth/login")
+async def login(body: LoginIn, request: Request) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        user = (
+            await session.execute(select(User).where(User.username == body.username))
+        ).scalar_one_or_none()
+        if user is None or not verify_password(body.password, user.password_hash):
+            raise HTTPException(401, {"code": "invalid_credentials", "message": "用户名或密码错误"})
+        token = new_auth_token()
+        ttl_days = request.app.state.settings.auth_token_ttl_days
+        session.add(
+            AuthToken(
+                id=new_id("tok"),
+                user_id=user.id,
+                token_hash=hash_token(token),
+                expires_at=utcnow() + timedelta(days=ttl_days),
+            )
+        )
+        await session.commit()
+        out = _user_out(user)
+    return {"token": token, "user": out}
+
+
+@router.get("/api/auth/me")
+async def whoami(user: User = Depends(require_user)) -> dict:
+    return _user_out(user)
+
+
+@router.post("/api/users")
+async def create_user(body: UserCreateIn, request: Request, _admin: User = Depends(require_admin)) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        exists = (
+            await session.execute(select(User).where(User.username == body.username))
+        ).scalar_one_or_none()
+        if exists is not None:
+            raise HTTPException(409, {"code": "user_exists", "message": "用户名已存在"})
+        user = User(
+            id=new_id("u"),
+            username=body.username,
+            display_name=body.display_name or body.username,
+            role=body.role,
+            password_hash=hash_password(body.password),
+        )
+        session.add(user)
+        await session.commit()
+        out = _user_out(user)
+    return out
+
+
+@router.get("/api/users", dependencies=[Depends(require_admin)])
+async def list_users(request: Request) -> list[dict]:
+    async with request.app.state.sessionmaker() as session:
+        rows = (await session.execute(select(User).order_by(User.created_at))).scalars().all()
+    return [_user_out(u) for u in rows]
 
 
 @router.post("/api/runners/enroll")

@@ -16,3 +16,7 @@ class Settings(BaseSettings):
     # 模型网关配置文件(YAML);为空时无可用模型后端,会话消息接口会报 no_backend
     models_config_path: str | None = None
     tool_wait_timeout_seconds: float = 130.0
+    # 启动时若该用户不存在则创建管理员(开发期默认值,部署务必用环境变量覆盖)
+    admin_username: str | None = None
+    admin_password: str | None = None
+    auth_token_ttl_days: int = 7
