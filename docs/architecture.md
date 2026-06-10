@@ -49,6 +49,29 @@ while True:
 目标机器能力 ∩ 用户权限 ∩ 会话策略 ∩ Runner 本地策略
 ```
 
+## 模型网关(多后端 + 用户路由)
+
+平台不绑定单一模型来源。网关把每个上游抽象成一个 **backend**:
+
+```text
+ModelBackend = { id, base_url, model, api_key, max_concurrency }
+```
+
+backend 底层可以是:
+- **Hermes proxy / OpenClaw 等 OAuth 代理**:把 Claude Pro / ChatGPT(Codex)/ SuperGrok 订阅暴露成本地 OpenAI 兼容端点(`http://localhost:port/v1`)。开发期可用,**不作为生产基础设施**(厂商可能封禁订阅计费、违反 ToS、稳定性靠逆向维持)。
+- **合规 API key**:Anthropic / OpenAI / DeepSeek 等,生产推荐。
+- **本地模型**:Ollama / LiteLLM。
+
+对上层统一为 `base_url + token`,所以三类可**混用**,切换只改配置。
+
+### 用户路由与共享配额
+
+- `user → backend` 映射由管理员分配(静态绑定最利于审计归集;池化轮询省订阅但归集变糊)。
+- 多个用户可映射到**同一个 backend**(多对一):一个 OAuth 订阅能被多客户端并发使用。
+- 但**并发可用 ≠ 配额翻倍**:共享 backend = 共享上游配额池(订阅的速率/消息上限),会一起撞限流。Agent Loop 是放大器(一次任务可能十几次模型往返),容量须按**并发会话数**而非人头估算。
+- 网关因此内置:**per-backend 并发闸 + 队列**、对上游 **429/限流自动退避重试**、`model_usage` 按 backend 聚合以便观察各订阅余量。
+- 成本说明:订阅制下只能审计"调用次数 / token / 归属 backend",**无法分摊到每次调用的金额**(无单价)。
+
 ## 技术栈
 
 - Server:Python 3.11+、FastAPI、SQLAlchemy 2.x、PostgreSQL(开发期 SQLite)、WebSocket、LiteLLM Proxy
