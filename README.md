@@ -5,6 +5,8 @@
 
 ---
 
+> **注意:本文件是总体方案概览。协议细节以 [docs/protocol.md](docs/protocol.md) 为准,安全模型以 [docs/security.md](docs/security.md) 为准;本文协议/安全章节的示例如有冲突,以 docs/ 为准。**
+
 ## 1. 项目定位
 
 本项目由两类软件组成：
@@ -212,12 +214,12 @@ models:
   claude-sonnet:
     display_name: Claude Sonnet
     provider: anthropic
-    model: claude-sonnet-4
+    model: claude-sonnet-4-6
 
   codex:
     display_name: Codex
-    provider: openai-codex
-    model: codex
+    provider: openai
+    model: gpt-5.5-codex   # 以 OpenAI 实际发布的模型 ID 为准
 
   deepseek:
     display_name: DeepSeek Chat
@@ -365,6 +367,8 @@ requires_approval:
 ---
 
 ## 8. 安全设计
+
+> **权威定义见 [docs/security.md](docs/security.md)**,核心结论:`remote_exec` 使文件路径限制无法成为安全边界;真正的边界是 Server 侧授权/审批 + Runner 专用低权限账号;命令黑名单只是审计/审批触发层。路径校验必须先 realpath 规范化。
 
 ### 8.1 基本原则
 
@@ -522,6 +526,8 @@ remote_download_file
 ---
 
 ## 10. 通信协议
+
+> **已升级为 v1,权威定义见 [docs/protocol.md](docs/protocol.md)**:增加了 enrollment token / runner token 认证、流式输出(task_output)、任务取消、任务状态机与幂等、输出大小上限。以下示例仅作概念说明。
 
 ### 10.1 Runner 注册
 
@@ -703,7 +709,7 @@ CREATE TABLE tool_calls (
 ## 12. 推荐项目目录
 
 ```text
-E:/ai agent/
+ai agent/            # 本仓库根目录
   README.md
   docs/
     architecture.md
@@ -766,7 +772,7 @@ Alembic
 Redis
 WebSocket
 LiteLLM Proxy
-Hermes Agent Core
+自研 Agent Loop(模型 tool-call → 权限检查 → 下发 → 回填循环,见 docs/architecture.md)
 ```
 
 ### Runner
