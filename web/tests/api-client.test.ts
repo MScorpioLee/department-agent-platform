@@ -1,6 +1,27 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { ApiClientError, createTask, listMachines } from "@/lib/api-client";
+import {
+  ApiClientError,
+  createTask,
+  getMe,
+  getAuditCommands,
+  getAuditSessions,
+  getAuditToolCalls,
+  getAuditUsage,
+  approveApproval,
+  createMachineGrant,
+  createSession,
+  listMachines,
+  getSessionMessages,
+  listApprovals,
+  listMachineGrants,
+  listUsers,
+  login,
+  logout,
+  rejectApproval,
+  revokeGrant,
+  sendSessionMessage
+} from "@/lib/api-client";
 
 describe("api-client", () => {
   afterEach(() => {
@@ -100,5 +121,269 @@ describe("api-client", () => {
       code: "validation_error",
       message: "command 不能为空"
     } satisfies Partial<ApiClientError>);
+  });
+
+  test("logs in through the auth route without exposing the returned token", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          user: {
+            id: "u_1",
+            username: "admin",
+            display_name: "管理员",
+            role: "admin"
+          }
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = await login("admin", "admin12345");
+
+    expect(user).toEqual({
+      id: "u_1",
+      username: "admin",
+      display_name: "管理员",
+      role: "admin"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/login",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ username: "admin", password: "admin12345" }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+  });
+
+  test("gets the current user and logs out through auth routes", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "u_1",
+            username: "admin",
+            display_name: "管理员",
+            role: "admin"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getMe()).resolves.toMatchObject({ username: "admin" });
+    await expect(logout()).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/auth/me",
+      expect.objectContaining({
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/auth/logout",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  test("fetches audit data through the protected proxy", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            total_tokens: 1200,
+            by_user_backend: [
+              {
+                user_id: "u_1",
+                backend_id: "openai",
+                prompt_tokens: 500,
+                completion_tokens: 700,
+                total_tokens: 1200,
+                turns: 4
+              }
+            ]
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ session_id: "s_1", user_id: "u_1" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: "tc_1", session_id: "s_1" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ task_id: "t_1", command: "npm test" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getAuditUsage("u_1")).resolves.toMatchObject({ total_tokens: 1200 });
+    await expect(getAuditSessions({ userId: "u_1", limit: 20 })).resolves.toHaveLength(1);
+    await expect(getAuditToolCalls({ sessionId: "s_1", limit: 20 })).resolves.toHaveLength(1);
+    await expect(getAuditCommands({ machineId: "m_1", limit: 20 })).resolves.toHaveLength(1);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/audit/usage?user_id=u_1", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/audit/sessions?user_id=u_1&limit=20",
+      expect.any(Object)
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/proxy/audit/tool-calls?session_id=s_1&limit=20",
+      expect.any(Object)
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/proxy/audit/commands?machine_id=m_1&limit=20",
+      expect.any(Object)
+    );
+  });
+
+  test("uses sessions endpoints for chat", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ session_id: "s_1", machine_id: "m_1", status: "active" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ reply: "完成", steps: [], stopped: null }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ seq: 1, role: "user", content: "看日志" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createSession({ machine_id: "m_1", title: "检查" })).resolves.toMatchObject({
+      session_id: "s_1"
+    });
+    await expect(sendSessionMessage("s_1", "看日志")).resolves.toMatchObject({ reply: "完成" });
+    await expect(getSessionMessages("s_1")).resolves.toHaveLength(1);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/proxy/sessions",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/sessions/s_1/messages",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ content: "看日志" }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/proxy/sessions/s_1/messages", expect.any(Object));
+  });
+
+  test("uses approvals, grants, and users endpoints", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ approval_id: "ap_1" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ approval_id: "ap_1", status: "approved", task_id: "t_1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ approval_id: "ap_2", status: "rejected" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ grant_id: "g_1" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ grant_id: "g_2", expires_at: "2026-06-11T00:00:00Z" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ revoked: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: "u_1", username: "alice" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listApprovals("pending")).resolves.toHaveLength(1);
+    await expect(approveApproval("ap_1")).resolves.toMatchObject({ task_id: "t_1" });
+    await expect(rejectApproval("ap_2")).resolves.toMatchObject({ status: "rejected" });
+    await expect(listMachineGrants("m_1")).resolves.toHaveLength(1);
+    await expect(createMachineGrant("m_1", { grantee_user_id: "u_2", expires_in_hours: 24 })).resolves.toMatchObject({
+      grant_id: "g_2"
+    });
+    await expect(revokeGrant("g_1")).resolves.toEqual({ revoked: true });
+    await expect(listUsers()).resolves.toHaveLength(1);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/approvals?status=pending", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/approvals/ap_1/approve",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/proxy/machines/m_1/grants",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ grantee_user_id: "u_2", expires_in_hours: 24 })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/api/proxy/grants/g_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/proxy/users", expect.any(Object));
   });
 });

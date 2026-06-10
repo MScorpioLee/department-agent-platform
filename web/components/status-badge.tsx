@@ -1,3 +1,5 @@
+import React from "react";
+
 import { cn } from "@/lib/cn";
 import { STATUS_LABELS } from "@/lib/tooling";
 import type { MachineStatus, TaskStatus } from "@/lib/types";

@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, Send } from "lucide-react";
+import { RefreshCw, Send, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
@@ -112,13 +112,22 @@ export default function MachinesPage() {
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-4 text-right">
-                      <Link
-                        href={`/console?machine_id=${encodeURIComponent(machine.machine_id)}`}
-                        className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-700"
-                      >
-                        <Send aria-hidden="true" className="h-4 w-4" />
-                        去下发任务
-                      </Link>
+                      <div className="inline-flex items-center gap-2">
+                        <Link
+                          href={`/machines/${encodeURIComponent(machine.machine_id)}/access`}
+                          className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                        >
+                          <ShieldCheck aria-hidden="true" className="h-4 w-4" />
+                          授权
+                        </Link>
+                        <Link
+                          href={`/console?machine_id=${encodeURIComponent(machine.machine_id)}`}
+                          className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-medium text-white hover:bg-slate-700"
+                        >
+                          <Send aria-hidden="true" className="h-4 w-4" />
+                          去下发任务
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))

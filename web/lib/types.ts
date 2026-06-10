@@ -20,10 +20,18 @@ export type TaskStatus =
 export interface Machine {
   machine_id: string;
   machine_name: string;
+  owner_user_id?: string;
   os: string;
   status: MachineStatus;
   last_seen_at: string;
   capabilities: ToolName[];
+}
+
+export interface User {
+  id: string;
+  username: string;
+  display_name: string;
+  role: string;
 }
 
 export interface CreateTaskRequest {
@@ -52,6 +60,120 @@ export interface TaskOutput {
   stdout: string;
   stderr: string;
   truncated: boolean;
+}
+
+export interface AuditUsageRow {
+  user_id: string;
+  backend_id: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  turns: number;
+}
+
+export interface AuditUsage {
+  total_tokens: number;
+  by_user_backend: AuditUsageRow[];
+}
+
+export interface AuditSession {
+  session_id: string;
+  user_id: string;
+  machine_id: string;
+  title: string;
+  status: string;
+  message_count: number;
+  created_at: string;
+}
+
+export interface AuditToolCall {
+  id: string;
+  session_id: string;
+  machine_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  result: Record<string, unknown>;
+  status: string;
+  created_at: string;
+}
+
+export interface AuditCommand {
+  task_id: string;
+  machine_id: string;
+  command: string;
+  status: string;
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  created_at: string;
+}
+
+export interface CreateSessionRequest {
+  machine_id: string;
+  title?: string;
+}
+
+export interface CreateSessionResponse {
+  session_id: string;
+  machine_id: string;
+  status: string;
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ChatMessage {
+  seq: number;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_calls: ToolCall[] | null;
+  tool_call_id?: string;
+  created_at: string;
+}
+
+export interface SendMessageResponse {
+  reply: string;
+  steps: unknown[];
+  stopped: string | null;
+}
+
+export interface Approval {
+  approval_id: string;
+  machine_id: string;
+  requested_by_user_id: string;
+  tool: ToolName;
+  payload: Record<string, unknown>;
+  risk_rule: string;
+  status: string;
+  created_at: string;
+}
+
+export interface ApproveApprovalResponse {
+  approval_id: string;
+  status: "approved";
+  task_id: string;
+  task_status: string;
+}
+
+export interface RejectApprovalResponse {
+  approval_id: string;
+  status: "rejected";
+}
+
+export interface MachineGrant {
+  grant_id: string;
+  grantee_user_id: string;
+  granted_by_user_id: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface CreateGrantRequest {
+  grantee_user_id: string;
+  expires_in_hours: number;
 }
 
 export interface ApiErrorBody {
