@@ -44,3 +44,8 @@ class EnrollmentTokenIn(BaseModel):
 
 class AssignMachineIn(BaseModel):
     user_id: str | None  # None=置为无主
+
+
+class GrantIn(BaseModel):
+    grantee_user_id: str
+    expires_in_hours: int = Field(default=2, ge=1, le=720)

@@ -11,7 +11,8 @@ from sqlalchemy import func, select
 
 from .agent import run_agent_turn
 from .model_gateway import ModelError
-from .models import Machine, Message, ModelUsage, Session, Task, ToolCall, new_id, utcnow
+from .models import Approval, Machine, Message, ModelUsage, Session, Task, ToolCall, new_id, utcnow
+from .risk import evaluate_risk
 from .tool_specs import TOOL_NAMES, specs_for
 
 log = logging.getLogger("agent_runner.services")
@@ -67,8 +68,47 @@ async def dispatch_and_wait(app, machine_id: str, tool: str, payload: dict) -> T
         return await session.get(Task, task_id)
 
 
-def _make_executor(app, machine: Machine, session_id: str):
-    """生成给 Agent Loop 用的工具执行器:做能力门控,再下发到真实 Runner。"""
+async def create_approval(app, machine_id, session_id, user_id, tool, payload, rule) -> str:
+    async with app.state.sessionmaker() as session:
+        ap = Approval(
+            id=new_id("ap"),
+            machine_id=machine_id,
+            session_id=session_id,
+            requested_by_user_id=user_id,
+            tool=tool,
+            payload=payload,
+            risk_rule=rule,
+        )
+        session.add(ap)
+        await session.commit()
+        return ap.id
+
+
+async def dispatch_no_wait(app, machine_id: str, tool: str, payload: dict) -> Task:
+    """创建任务并下发,不等待结果(供 /api/tasks 与审批通过后复用)。返回 Task(可能为 lost)。"""
+    hub = app.state.hub
+    async with app.state.sessionmaker() as session:
+        task = Task(id=new_id("t"), machine_id=machine_id, tool=tool, payload=payload)
+        session.add(task)
+        await session.commit()
+        hub.open_buffer(task.id)
+        sent = await hub.send(
+            machine_id,
+            {"protocol_version": 1, "type": "task", "task_id": task.id, "tool": tool, "payload": payload},
+        )
+        if not sent:
+            hub.close_buffer(task.id)
+            task.status = "lost"
+            task.finished_at = utcnow()
+        else:
+            task.status = "dispatched"
+            task.dispatched_at = utcnow()
+        await session.commit()
+        return task
+
+
+def _make_executor(app, machine: Machine, session_id: str, user_id: str):
+    """生成给 Agent Loop 用的工具执行器:能力门控 + 高风险审批拦截,再下发到真实 Runner。"""
     caps = machine.capabilities
 
     async def executor(name: str, args: dict) -> dict:
@@ -76,6 +116,16 @@ def _make_executor(app, machine: Machine, session_id: str):
             return {"error_code": "tool_unknown", "error_message": f"未知工具: {name}"}
         if caps and name not in caps:
             return {"error_code": "tool_not_supported", "error_message": f"目标机器不支持 {name}"}
+        # 高风险操作不直接执行,创建审批并把结果交回模型(由模型转达用户)
+        rule = evaluate_risk(name, args)
+        if rule:
+            approval_id = await create_approval(app, machine.id, session_id, user_id, name, args, rule)
+            return {
+                "needs_approval": True,
+                "approval_id": approval_id,
+                "risk_rule": rule,
+                "error_message": f"操作命中高风险规则「{rule}」,已创建审批 {approval_id},需机器所有者批准后才会执行。",
+            }
         task = await dispatch_and_wait(app, machine.id, name, args)
         if task.status == "completed":
             return task.result or {}
@@ -151,7 +201,7 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         usage_acc["total"] += int(u.get("total_tokens") or 0)
         return completion
 
-    executor = _make_executor(app, machine_for_exec, session_id)
+    executor = _make_executor(app, machine_for_exec, session_id, user_id)
 
     async def on_message(msg: dict) -> None:
         seq_counter["v"] += 1

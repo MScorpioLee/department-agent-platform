@@ -92,6 +92,34 @@ class ToolCall(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Approval(Base):
+    __tablename__ = "approvals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    machine_id: Mapped[str] = mapped_column(String(64), index=True)
+    session_id: Mapped[str | None] = mapped_column(String(64))
+    requested_by_user_id: Mapped[str | None] = mapped_column(String(64))
+    tool: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSON)
+    risk_rule: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending/approved/rejected
+    decided_by_user_id: Mapped[str | None] = mapped_column(String(64))
+    task_id: Mapped[str | None] = mapped_column(String(64))  # 批准后产生的任务
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MachineGrant(Base):
+    __tablename__ = "machine_grants"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    machine_id: Mapped[str] = mapped_column(String(64), index=True)
+    grantee_user_id: Mapped[str] = mapped_column(String(64), index=True)  # 被授权人
+    granted_by_user_id: Mapped[str | None] = mapped_column(String(64))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # None=不过期
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ModelUsage(Base):
     __tablename__ = "model_usage"
 

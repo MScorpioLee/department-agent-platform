@@ -185,6 +185,15 @@ GET  /api/audit/sessions?user_id=&limit=          → 会话列表含消息数(a
 GET  /api/audit/tool-calls?session_id=&machine_id= → 工具调用审计,脱敏(admin)
 GET  /api/audit/commands?machine_id=&limit=       → remote_exec 命令与输出,脱敏(admin)
 
+POST /api/tasks  命中高风险 → {status:"needs_approval", approval_id, risk_rule}(不下发)
+GET  /api/approvals?status=pending                → 我可裁决的审批(自己名下机器/admin)
+POST /api/approvals/{id}/approve                  → 批准并下发,返回 {task_id}(仅机器所有者/admin)
+POST /api/approvals/{id}/reject                   → 拒绝(仅机器所有者/admin)
+
+POST /api/machines/{id}/grants {grantee_user_id,expires_in_hours} → 临时授权他人(仅所有者/admin)
+GET  /api/machines/{id}/grants                    → 有效授权列表
+DELETE /api/grants/{grant_id}                     → 撤销授权
+
 GET  /api/machines                      → [{machine_id, machine_name, owner_user_id, os, status, last_seen_at, capabilities}]
 POST /api/tasks                         body: {machine_id, tool, payload}
                                         → {task_id, status}   (status 为当前状态,通常是 dispatched)

@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -17,9 +17,11 @@ from .auth import (
     verify_password,
 )
 from .models import (
+    Approval,
     AuthToken,
     EnrollmentToken,
     Machine,
+    MachineGrant,
     Message,
     Session,
     Task,
@@ -27,17 +29,19 @@ from .models import (
     new_id,
     utcnow,
 )
+from .risk import evaluate_risk
 from .schemas import (
     AssignMachineIn,
     EnrollIn,
     EnrollmentTokenIn,
+    GrantIn,
     LoginIn,
     MessageIn,
     SessionIn,
     TaskIn,
     UserCreateIn,
 )
-from .services import run_session_turn
+from .services import create_approval, dispatch_no_wait, run_session_turn
 
 router = APIRouter()
 
@@ -83,19 +87,45 @@ def _user_out(u: User) -> dict:
     return {"id": u.id, "username": u.username, "display_name": u.display_name, "role": u.role}
 
 
-def _check_owner(owner_user_id: str | None, principal: Principal) -> None:
-    """非管理员只能访问归属自己的资源(无主机器也拒绝,需先由管理员分配)。"""
+def _grant_active(g: MachineGrant) -> bool:
+    if g.expires_at is None:
+        return True
+    exp = g.expires_at
+    if exp.tzinfo is None:  # SQLite 读出为 naive,按 UTC 解释
+        exp = exp.replace(tzinfo=timezone.utc)
+    return exp >= utcnow()
+
+
+def _owner_or_admin(machine: Machine | None, principal: Principal) -> bool:
+    """严格归属:仅机器所有者或管理员(用于授权管理、审批裁决,不含被授权人)。"""
     if principal.is_admin:
-        return
-    if owner_user_id is None or owner_user_id != principal.user_id:
-        raise HTTPException(403, {"code": "forbidden", "message": "无权访问该机器/资源"})
+        return True
+    return machine is not None and machine.owner_user_id == principal.user_id
+
+
+async def _has_access(session, machine: Machine | None, principal: Principal) -> bool:
+    """使用机器的权限:所有者 / 管理员 / 持有有效跨机器授权的被授权人。"""
+    if _owner_or_admin(machine, principal):
+        return True
+    if machine is None or principal.user_id is None:
+        return False
+    grants = (
+        await session.execute(
+            select(MachineGrant).where(
+                MachineGrant.machine_id == machine.id,
+                MachineGrant.grantee_user_id == principal.user_id,
+            )
+        )
+    ).scalars().all()
+    return any(_grant_active(g) for g in grants)
 
 
 async def _machine_or_403(session, machine_id: str, principal: Principal) -> Machine:
     machine = await session.get(Machine, machine_id)
     if machine is None:
         raise HTTPException(404, {"code": "machine_not_found", "message": "机器不存在"})
-    _check_owner(machine.owner_user_id, principal)
+    if not await _has_access(session, machine, principal):
+        raise HTTPException(403, {"code": "forbidden", "message": "无权访问该机器/资源"})
     return machine
 
 
@@ -199,6 +229,75 @@ async def assign_machine(
     return {"machine_id": machine_id, "owner_user_id": body.user_id}
 
 
+def _grant_out(g: MachineGrant) -> dict:
+    return {
+        "grant_id": g.id,
+        "machine_id": g.machine_id,
+        "grantee_user_id": g.grantee_user_id,
+        "granted_by_user_id": g.granted_by_user_id,
+        "expires_at": _iso(g.expires_at),
+        "created_at": _iso(g.created_at),
+    }
+
+
+@router.post("/api/machines/{machine_id}/grants")
+async def create_grant(
+    machine_id: str, body: GrantIn, request: Request, principal: Principal = Depends(require_principal)
+) -> dict:
+    """机器所有者把临时访问授权给另一个用户(有效期内)。"""
+    async with request.app.state.sessionmaker() as session:
+        machine = await session.get(Machine, machine_id)
+        if machine is None:
+            raise HTTPException(404, {"code": "machine_not_found", "message": "机器不存在"})
+        if not _owner_or_admin(machine, principal):
+            raise HTTPException(403, {"code": "forbidden", "message": "仅机器所有者或管理员可授权"})
+        if await session.get(User, body.grantee_user_id) is None:
+            raise HTTPException(404, {"code": "user_not_found", "message": "grantee_user_id 不存在"})
+        grant = MachineGrant(
+            id=new_id("grant"),
+            machine_id=machine_id,
+            grantee_user_id=body.grantee_user_id,
+            granted_by_user_id=principal.user_id,
+            expires_at=utcnow() + timedelta(hours=body.expires_in_hours),
+        )
+        session.add(grant)
+        await session.commit()
+        out = _grant_out(grant)
+    return out
+
+
+@router.get("/api/machines/{machine_id}/grants")
+async def list_grants(
+    machine_id: str, request: Request, principal: Principal = Depends(require_principal)
+) -> list[dict]:
+    async with request.app.state.sessionmaker() as session:
+        machine = await session.get(Machine, machine_id)
+        if machine is None:
+            raise HTTPException(404, {"code": "machine_not_found", "message": "机器不存在"})
+        if not _owner_or_admin(machine, principal):
+            raise HTTPException(403, {"code": "forbidden", "message": "仅机器所有者或管理员可查看授权"})
+        rows = (
+            await session.execute(select(MachineGrant).where(MachineGrant.machine_id == machine_id))
+        ).scalars().all()
+    return [_grant_out(g) for g in rows if _grant_active(g)]
+
+
+@router.delete("/api/grants/{grant_id}")
+async def revoke_grant(
+    grant_id: str, request: Request, principal: Principal = Depends(require_principal)
+) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        grant = await session.get(MachineGrant, grant_id)
+        if grant is None:
+            raise HTTPException(404, {"code": "grant_not_found", "message": "授权不存在"})
+        machine = await session.get(Machine, grant.machine_id)
+        if not _owner_or_admin(machine, principal):
+            raise HTTPException(403, {"code": "forbidden", "message": "仅机器所有者或管理员可撤销授权"})
+        await session.delete(grant)
+        await session.commit()
+    return {"revoked": grant_id}
+
+
 @router.post("/api/runners/enroll")
 async def enroll(body: EnrollIn, request: Request) -> dict:
     token_in = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
@@ -231,10 +330,15 @@ async def enroll(body: EnrollIn, request: Request) -> dict:
 async def list_machines(request: Request, principal: Principal = Depends(require_principal)) -> list[dict]:
     hub = request.app.state.hub
     async with request.app.state.sessionmaker() as session:
-        stmt = select(Machine).order_by(Machine.created_at)
+        rows = (await session.execute(select(Machine).order_by(Machine.created_at))).scalars().all()
         if not principal.is_admin:
-            stmt = stmt.where(Machine.owner_user_id == principal.user_id)
-        rows = (await session.execute(stmt)).scalars().all()
+            grants = (
+                await session.execute(
+                    select(MachineGrant).where(MachineGrant.grantee_user_id == principal.user_id)
+                )
+            ).scalars().all()
+            granted_ids = {g.machine_id for g in grants if _grant_active(g)}
+            rows = [m for m in rows if m.owner_user_id == principal.user_id or m.id in granted_ids]
     return [_machine_out(m, hub.is_online(m.id)) for m in rows]
 
 
@@ -249,28 +353,100 @@ async def create_task(
         machine = await _machine_or_403(session, body.machine_id, principal)
         if machine.capabilities and body.tool not in machine.capabilities:
             raise HTTPException(409, {"code": "tool_not_supported", "message": "目标机器未上报该工具能力"})
-        if not hub.is_online(body.machine_id):
-            raise HTTPException(409, {"code": "machine_offline", "message": "目标机器不在线"})
+    if not hub.is_online(body.machine_id):
+        raise HTTPException(409, {"code": "machine_offline", "message": "目标机器不在线"})
 
-        task = Task(id=new_id("t"), machine_id=body.machine_id, tool=body.tool, payload=body.payload)
-        session.add(task)
-        await session.commit()
-
-        hub.open_buffer(task.id)
-        sent = await hub.send(
-            body.machine_id,
-            {"protocol_version": 1, "type": "task", "task_id": task.id, "tool": task.tool, "payload": task.payload},
+    # 高风险操作转审批,不直接下发
+    rule = evaluate_risk(body.tool, body.payload)
+    if rule:
+        approval_id = await create_approval(
+            request.app, body.machine_id, None, principal.user_id, body.tool, body.payload, rule
         )
-        if not sent:
-            hub.close_buffer(task.id)
-            task.status = "lost"
-            task.finished_at = utcnow()
-            await session.commit()
-            raise HTTPException(409, {"code": "machine_offline", "message": "下发失败,机器已断线"})
-        task.status = "dispatched"
-        task.dispatched_at = utcnow()
-        await session.commit()
+        return {"status": "needs_approval", "approval_id": approval_id, "risk_rule": rule}
+
+    task = await dispatch_no_wait(request.app, body.machine_id, body.tool, body.payload)
+    if task.status == "lost":
+        raise HTTPException(409, {"code": "machine_offline", "message": "下发失败,机器已断线"})
     return {"task_id": task.id, "status": task.status}
+
+
+def _approval_out(ap: Approval) -> dict:
+    return {
+        "approval_id": ap.id,
+        "machine_id": ap.machine_id,
+        "session_id": ap.session_id,
+        "requested_by_user_id": ap.requested_by_user_id,
+        "tool": ap.tool,
+        "payload": ap.payload,
+        "risk_rule": ap.risk_rule,
+        "status": ap.status,
+        "task_id": ap.task_id,
+        "created_at": _iso(ap.created_at),
+        "decided_at": _iso(ap.decided_at),
+    }
+
+
+@router.get("/api/approvals")
+async def list_approvals(
+    request: Request, principal: Principal = Depends(require_principal), status: str = "pending"
+) -> list[dict]:
+    """列出当前用户有权审批的请求(自己名下机器;admin 看全部)。"""
+    async with request.app.state.sessionmaker() as session:
+        rows = (
+            await session.execute(
+                select(Approval).where(Approval.status == status).order_by(Approval.created_at.desc()).limit(200)
+            )
+        ).scalars().all()
+        out = []
+        for ap in rows:
+            machine = await session.get(Machine, ap.machine_id)
+            if principal.is_admin or (machine is not None and machine.owner_user_id == principal.user_id):
+                out.append(_approval_out(ap))
+    return out
+
+
+async def _approval_for_decision(session, approval_id: str, principal: Principal) -> Approval:
+    ap = await session.get(Approval, approval_id)
+    if ap is None:
+        raise HTTPException(404, {"code": "approval_not_found", "message": "审批不存在"})
+    # 只有机器所有者或管理员可裁决;被授权人(grantee)不能自批
+    machine = await session.get(Machine, ap.machine_id)
+    if not _owner_or_admin(machine, principal):
+        raise HTTPException(403, {"code": "forbidden", "message": "仅机器所有者或管理员可裁决审批"})
+    if ap.status != "pending":
+        raise HTTPException(409, {"code": "already_decided", "message": f"审批已处理: {ap.status}"})
+    return ap
+
+
+@router.post("/api/approvals/{approval_id}/approve")
+async def approve(approval_id: str, request: Request, principal: Principal = Depends(require_principal)) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        ap = await _approval_for_decision(session, approval_id, principal)
+        ap.status = "approved"
+        ap.decided_by_user_id = principal.user_id
+        ap.decided_at = utcnow()
+        await session.commit()
+        tool, payload, machine_id = ap.tool, ap.payload, ap.machine_id
+
+    if not request.app.state.hub.is_online(machine_id):
+        raise HTTPException(409, {"code": "machine_offline", "message": "机器不在线,已批准但暂无法执行"})
+    task = await dispatch_no_wait(request.app, machine_id, tool, payload)
+    async with request.app.state.sessionmaker() as session:
+        ap = await session.get(Approval, approval_id)
+        ap.task_id = task.id
+        await session.commit()
+    return {"approval_id": approval_id, "status": "approved", "task_id": task.id, "task_status": task.status}
+
+
+@router.post("/api/approvals/{approval_id}/reject")
+async def reject(approval_id: str, request: Request, principal: Principal = Depends(require_principal)) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        ap = await _approval_for_decision(session, approval_id, principal)
+        ap.status = "rejected"
+        ap.decided_by_user_id = principal.user_id
+        ap.decided_at = utcnow()
+        await session.commit()
+    return {"approval_id": approval_id, "status": "rejected"}
 
 
 @router.get("/api/tasks")
@@ -297,7 +473,8 @@ async def _task_or_403(session, task_id: str, principal: Principal) -> Task:
     if task is None:
         raise HTTPException(404, {"code": "task_not_found", "message": "任务不存在"})
     machine = await session.get(Machine, task.machine_id)
-    _check_owner(machine.owner_user_id if machine else None, principal)
+    if not await _has_access(session, machine, principal):
+        raise HTTPException(403, {"code": "forbidden", "message": "无权访问该任务"})
     return task
 
 
