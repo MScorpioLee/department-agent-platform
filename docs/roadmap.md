@@ -50,3 +50,9 @@
 - 用户登录凭据(依赖 M4 用户系统,不内置共享 API Key),存 OS keychain
 - 系统托盘、任务完成通知
 - 移动端远期,同一 API,暂不排期
+
+## Milestone 8/9/10:三大管理面(设计见 docs/management.md)
+
+- M8 模型管理:DB 化模型后端 + admin API + 管理页(界面增删改/分配/热生效,key 加密不回显)
+- M9 插件管理:Runner 插件系统(git/node/python… 可装可启用)+ 动态工具 schema;插件只来自本地配置
+- M10 Skill 管理:挂载外部 MCP server 作为 Agent 的"外部手脚"(web/DB/API),服务端执行、按用户授权、审计
