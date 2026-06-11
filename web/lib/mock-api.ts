@@ -1,9 +1,13 @@
 import type {
   Approval,
   ChatMessage,
+  Connector,
+  ConnectorTransport,
   CreateTaskRequest,
   Machine,
   MachineGrant,
+  ModelBackend,
+  ModelRoute,
   TaskOutput,
   TaskRecord,
   TaskStatus,
@@ -43,6 +47,14 @@ interface InternalSession {
   status: string;
   title: string;
   messages: ChatMessage[];
+}
+
+function maskSecret(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.includes("…")) return trimmed;
+  if (trimmed.length <= 7) return "••••";
+  return `${trimmed.slice(0, 3)}…${trimmed.slice(-4)}`;
 }
 
 function error(status: number, code: string, message: string): MockApiResponse {
@@ -241,6 +253,80 @@ export function createMockApi(options: MockApiOptions = {}) {
     { id: "u_mock_admin", username: "admin", display_name: "管理员", role: "admin" },
     { id: "u_mock_user", username: "alice", display_name: "Alice", role: "user" }
   ];
+  const modelBackends = new Map<string, ModelBackend>([
+    [
+      "model_mock_deepseek",
+      {
+        id: "model_mock_deepseek",
+        name: "DeepSeek",
+        base_url: "https://api.deepseek.com",
+        model: "deepseek-chat",
+        api_key: "sk-…cdef",
+        max_concurrency: 4,
+        enabled: true,
+        is_default: true,
+        created_at: new Date(now()).toISOString()
+      }
+    ],
+    [
+      "model_mock_openai",
+      {
+        id: "model_mock_openai",
+        name: "OpenAI",
+        base_url: "https://api.openai.com/v1",
+        model: "gpt-4.1",
+        api_key: "sk-…7890",
+        max_concurrency: 2,
+        enabled: true,
+        is_default: false,
+        created_at: new Date(now() - 60 * 1000).toISOString()
+      }
+    ]
+  ]);
+  const modelKeyValues = new Map<string, string>([
+    ["model_mock_deepseek", "sk-mock-deepseek-cdef"],
+    ["model_mock_openai", "sk-mock-openai-7890"]
+  ]);
+  const modelRoutes = new Map<string, string>([["u_mock_user", "model_mock_openai"]]);
+  const connectors = new Map<string, Connector>([
+    [
+      "conn_mock_github",
+      {
+        id: "conn_mock_github",
+        name: "GitHub MCP",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+        env_keys: ["GITHUB_TOKEN"],
+        enabled: true,
+        scope_all: false,
+        scopes: ["u_mock_user"],
+        status: "connected",
+        tool_count: 8,
+        created_at: new Date(now()).toISOString()
+      }
+    ],
+    [
+      "conn_mock_docs",
+      {
+        id: "conn_mock_docs",
+        name: "Docs MCP",
+        transport: "http",
+        url: "https://mcp.example.test",
+        env_keys: [],
+        enabled: false,
+        scope_all: true,
+        scopes: [],
+        status: "disabled",
+        tool_count: 0,
+        created_at: new Date(now() - 60 * 1000).toISOString()
+      }
+    ]
+  ]);
+  const connectorEnvValues = new Map<string, Record<string, string>>([
+    ["conn_mock_github", { GITHUB_TOKEN: "ghp_mock_secret" }],
+    ["conn_mock_docs", {}]
+  ]);
   const machineOwners = new Map<string, string | null>([
     ["m_mock_online", "u_mock_admin"],
     ["m_mock_offline", "u_mock_admin"]
@@ -251,6 +337,8 @@ export function createMockApi(options: MockApiOptions = {}) {
   let userCounter = 2;
   let enrollmentCounter = 0;
   let wsTicketCounter = 0;
+  let modelCounter = 2;
+  let connectorCounter = 2;
 
   function seedApprovals() {
     if (approvals.size > 0) return;
@@ -483,6 +571,214 @@ export function createMockApi(options: MockApiOptions = {}) {
     return { status: 200, body: { task_id: taskId, status: "cancelled" } };
   }
 
+  function allModelBackends() {
+    return Array.from(modelBackends.values());
+  }
+
+  function setOnlyDefault(backendId: string) {
+    for (const [id, backend] of modelBackends.entries()) {
+      modelBackends.set(id, { ...backend, is_default: id === backendId });
+    }
+  }
+
+  function createModelBackend(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const name = typeof request.name === "string" ? request.name.trim() : "";
+    const baseUrl = typeof request.base_url === "string" ? request.base_url.trim() : "";
+    const model = typeof request.model === "string" ? request.model.trim() : "";
+    const apiKey = typeof request.api_key === "string" ? request.api_key.trim() : "";
+    const maxConcurrency = typeof request.max_concurrency === "number" ? request.max_concurrency : 1;
+    const isDefault = request.is_default === true;
+
+    if (!name) return error(422, "validation_error", "name 不能为空");
+    if (!baseUrl) return error(422, "validation_error", "base_url 不能为空");
+    if (!model) return error(422, "validation_error", "model 不能为空");
+    if (!apiKey) return error(422, "validation_error", "api_key 不能为空");
+    if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) {
+      return error(422, "validation_error", "max_concurrency 必须大于 0");
+    }
+
+    const id = `model_mock_${++modelCounter}`;
+    const backend: ModelBackend = {
+      id,
+      name,
+      base_url: baseUrl,
+      model,
+      api_key: maskSecret(apiKey),
+      max_concurrency: maxConcurrency,
+      enabled: request.enabled !== false,
+      is_default: isDefault,
+      created_at: new Date(now()).toISOString()
+    };
+    modelBackends.set(id, backend);
+    modelKeyValues.set(id, apiKey);
+    if (isDefault) setOnlyDefault(id);
+    return { status: 200, body: modelBackends.get(id) };
+  }
+
+  function updateModelBackend(backendId: string | undefined, body: unknown): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const current = modelBackends.get(backendId)!;
+    const next: ModelBackend = { ...current };
+
+    if (typeof request.name === "string") next.name = request.name.trim();
+    if (typeof request.base_url === "string") next.base_url = request.base_url.trim();
+    if (typeof request.model === "string") next.model = request.model.trim();
+    if (typeof request.max_concurrency === "number") next.max_concurrency = request.max_concurrency;
+    if (typeof request.enabled === "boolean") next.enabled = request.enabled;
+    if (typeof request.api_key === "string" && request.api_key.trim()) {
+      modelKeyValues.set(backendId, request.api_key.trim());
+      next.api_key = maskSecret(request.api_key);
+    }
+    if (typeof request.is_default === "boolean") next.is_default = request.is_default;
+    modelBackends.set(backendId, next);
+    if (request.is_default === true) setOnlyDefault(backendId);
+    return { status: 200, body: modelBackends.get(backendId) };
+  }
+
+  function deleteModelBackend(backendId: string | undefined): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    modelBackends.delete(backendId);
+    modelKeyValues.delete(backendId);
+    for (const [userId, routeBackendId] of modelRoutes.entries()) {
+      if (routeBackendId === backendId) modelRoutes.delete(userId);
+    }
+    if (!allModelBackends().some((backend) => backend.is_default)) {
+      const first = allModelBackends()[0];
+      if (first) modelBackends.set(first.id, { ...first, is_default: true });
+    }
+    return { status: 200, body: { deleted: true } };
+  }
+
+  function putModelRoute(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const userId = typeof request.user_id === "string" ? request.user_id.trim() : "";
+    const backendId =
+      typeof request.backend_id === "string" && request.backend_id.trim() ? request.backend_id.trim() : null;
+    if (!users.some((user) => user.id === userId)) return error(404, "user_not_found", "用户不存在");
+    if (backendId && !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    if (backendId) {
+      modelRoutes.set(userId, backendId);
+    } else {
+      modelRoutes.delete(userId);
+    }
+    return { status: 200, body: { user_id: userId, backend_id: backendId } satisfies ModelRoute };
+  }
+
+  function connectorStatus(enabled: boolean) {
+    return enabled ? "connected" : "disabled";
+  }
+
+  function parseArgs(value: unknown): string[] | undefined {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is string => typeof item === "string");
+  }
+
+  function parseEnv(value: unknown): Record<string, string> | undefined {
+    if (value === undefined) return undefined;
+    const record = asRecord(value);
+    if (!record) return {};
+    return Object.fromEntries(
+      Object.entries(record)
+        .filter(([key, envValue]) => key.trim() && typeof envValue === "string")
+        .map(([key, envValue]) => [key.trim(), envValue as string])
+    );
+  }
+
+  function createConnector(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const name = typeof request.name === "string" ? request.name.trim() : "";
+    const transport = request.transport === "http" ? "http" : request.transport === "stdio" ? "stdio" : null;
+    const command = typeof request.command === "string" ? request.command.trim() : undefined;
+    const url = typeof request.url === "string" ? request.url.trim() : undefined;
+    const args = parseArgs(request.args);
+    const env = parseEnv(request.env) ?? {};
+    const enabled = request.enabled !== false;
+
+    if (!name) return error(422, "validation_error", "name 不能为空");
+    if (!transport) return error(422, "validation_error", "transport 不支持");
+    if (transport === "stdio" && !command) return error(422, "validation_error", "command 不能为空");
+    if (transport === "http" && !url) return error(422, "validation_error", "url 不能为空");
+
+    const id = `conn_mock_${++connectorCounter}`;
+    const connector: Connector = {
+      id,
+      name,
+      transport,
+      ...(transport === "stdio" ? { command, args: args ?? [] } : { url }),
+      env_keys: Object.keys(env),
+      enabled,
+      scope_all: request.scope_all !== false,
+      scopes: [],
+      status: connectorStatus(enabled),
+      tool_count: enabled ? 3 : 0,
+      created_at: new Date(now()).toISOString()
+    };
+    connectors.set(id, connector);
+    connectorEnvValues.set(id, env);
+    return { status: 200, body: connector };
+  }
+
+  function updateConnector(connectorId: string | undefined, body: unknown): MockApiResponse {
+    if (!connectorId || !connectors.has(connectorId)) return error(404, "not_found", "连接器不存在");
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const current = connectors.get(connectorId)!;
+    const next: Connector = { ...current };
+
+    if (typeof request.name === "string") next.name = request.name.trim();
+    if (request.transport === "stdio" || request.transport === "http") next.transport = request.transport;
+    if (typeof request.command === "string") next.command = request.command.trim();
+    if (typeof request.url === "string") next.url = request.url.trim();
+    const args = parseArgs(request.args);
+    if (args) next.args = args;
+    const env = parseEnv(request.env);
+    if (env) {
+      connectorEnvValues.set(connectorId, env);
+      next.env_keys = Object.keys(env);
+    }
+    if (typeof request.enabled === "boolean") {
+      next.enabled = request.enabled;
+      next.status = connectorStatus(request.enabled);
+      next.tool_count = request.enabled ? Math.max(next.tool_count, 1) : 0;
+    }
+    if (typeof request.scope_all === "boolean") {
+      next.scope_all = request.scope_all;
+      if (request.scope_all) next.scopes = [];
+    }
+
+    connectors.set(connectorId, next);
+    return { status: 200, body: next };
+  }
+
+  function deleteConnector(connectorId: string | undefined): MockApiResponse {
+    if (!connectorId || !connectors.has(connectorId)) return error(404, "not_found", "连接器不存在");
+    connectors.delete(connectorId);
+    connectorEnvValues.delete(connectorId);
+    return { status: 200, body: { deleted: true } };
+  }
+
+  function putConnectorScope(connectorId: string | undefined, body: unknown): MockApiResponse {
+    if (!connectorId || !connectors.has(connectorId)) return error(404, "not_found", "连接器不存在");
+    const request = asRecord(body);
+    if (!request || !Array.isArray(request.user_ids)) {
+      return error(422, "validation_error", "user_ids 必须是数组");
+    }
+    const userIds = request.user_ids.filter((item): item is string => typeof item === "string");
+    if (userIds.some((userId) => !users.some((user) => user.id === userId))) {
+      return error(404, "user_not_found", "用户不存在");
+    }
+    const connector = connectors.get(connectorId)!;
+    connectors.set(connectorId, { ...connector, scope_all: false, scopes: userIds });
+    return { status: 200, body: { user_ids: userIds } };
+  }
+
   function createSession(body: unknown): MockApiResponse {
     const request = asRecord(body);
     if (!request) return error(422, "validation_error", "请求体必须是对象");
@@ -596,6 +892,59 @@ export function createMockApi(options: MockApiOptions = {}) {
     if (resource === "ws-ticket" && normalizedMethod === "POST" && pathSegments.length === 1) {
       wsTicketCounter += 1;
       return { status: 200, body: { ticket: `mock_ws_ticket_${wsTicketCounter}` } };
+    }
+
+    if (resource === "admin") {
+      const adminResource = pathSegments[1];
+      const itemId = pathSegments[2];
+      const action = pathSegments[3];
+
+      if (adminResource === "models") {
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return { status: 200, body: allModelBackends() };
+        }
+        if (normalizedMethod === "POST" && pathSegments.length === 2) {
+          return createModelBackend(body);
+        }
+        if (normalizedMethod === "PATCH" && pathSegments.length === 3) {
+          return updateModelBackend(itemId, body);
+        }
+        if (normalizedMethod === "DELETE" && pathSegments.length === 3) {
+          return deleteModelBackend(itemId);
+        }
+      }
+
+      if (adminResource === "model-routes") {
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return {
+            status: 200,
+            body: Array.from(modelRoutes.entries()).map(([user_id, backend_id]) => ({ user_id, backend_id }))
+          };
+        }
+        if (normalizedMethod === "PUT" && pathSegments.length === 2) {
+          return putModelRoute(body);
+        }
+      }
+
+      if (adminResource === "connectors") {
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return { status: 200, body: Array.from(connectors.values()) };
+        }
+        if (normalizedMethod === "POST" && pathSegments.length === 2) {
+          return createConnector(body);
+        }
+        if (normalizedMethod === "PATCH" && pathSegments.length === 3) {
+          return updateConnector(itemId, body);
+        }
+        if (normalizedMethod === "DELETE" && pathSegments.length === 3) {
+          return deleteConnector(itemId);
+        }
+        if (normalizedMethod === "PUT" && action === "scope" && pathSegments.length === 4) {
+          return putConnectorScope(itemId, body);
+        }
+      }
+
+      return error(404, "not_found", "接口不存在");
     }
 
     if (resource === "sessions") {

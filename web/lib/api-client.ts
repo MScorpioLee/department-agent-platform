@@ -9,7 +9,10 @@ import type {
   ChatMessage,
   AssignMachineOwnerResponse,
   CancelTaskResponse,
+  Connector,
   CreateEnrollmentTokenRequest,
+  CreateConnectorRequest,
+  CreateModelBackendRequest,
   CreateUserRequest,
   EnrollmentTokenResponse,
   CreateGrantRequest,
@@ -19,10 +22,14 @@ import type {
   CreateTaskResponse,
   Machine,
   MachineGrant,
+  ModelBackend,
+  ModelRoute,
   RejectApprovalResponse,
   SendMessageResponse,
   TaskOutput,
   TaskRecord,
+  UpdateConnectorRequest,
+  UpdateModelBackendRequest,
   User,
   WsTicketResponse
 } from "@/lib/types";
@@ -268,6 +275,75 @@ export function getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
 
 export function createWsTicket(): Promise<WsTicketResponse> {
   return apiFetch<WsTicketResponse>("/ws-ticket", { method: "POST" });
+}
+
+export function listModelBackends(): Promise<ModelBackend[]> {
+  return apiFetch<ModelBackend[]>("/admin/models");
+}
+
+export function createModelBackend(request: CreateModelBackendRequest): Promise<ModelBackend> {
+  return apiFetch<ModelBackend>("/admin/models", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function updateModelBackend(
+  backendId: string,
+  request: UpdateModelBackendRequest
+): Promise<ModelBackend> {
+  return apiFetch<ModelBackend>(`/admin/models/${encodeURIComponent(backendId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(request)
+  });
+}
+
+export function deleteModelBackend(backendId: string): Promise<{ deleted: boolean }> {
+  return apiFetch<{ deleted: boolean }>(`/admin/models/${encodeURIComponent(backendId)}`, {
+    method: "DELETE"
+  });
+}
+
+export function listModelRoutes(): Promise<ModelRoute[]> {
+  return apiFetch<ModelRoute[]>("/admin/model-routes");
+}
+
+export function putModelRoute(userId: string, backendId: string | null): Promise<ModelRoute> {
+  return apiFetch<ModelRoute>("/admin/model-routes", {
+    method: "PUT",
+    body: JSON.stringify({ user_id: userId, backend_id: backendId })
+  });
+}
+
+export function listConnectors(): Promise<Connector[]> {
+  return apiFetch<Connector[]>("/admin/connectors");
+}
+
+export function createConnector(request: CreateConnectorRequest): Promise<Connector> {
+  return apiFetch<Connector>("/admin/connectors", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function updateConnector(connectorId: string, request: UpdateConnectorRequest): Promise<Connector> {
+  return apiFetch<Connector>(`/admin/connectors/${encodeURIComponent(connectorId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(request)
+  });
+}
+
+export function deleteConnector(connectorId: string): Promise<{ deleted: boolean }> {
+  return apiFetch<{ deleted: boolean }>(`/admin/connectors/${encodeURIComponent(connectorId)}`, {
+    method: "DELETE"
+  });
+}
+
+export function putConnectorScope(connectorId: string, userIds: string[]): Promise<{ user_ids: string[] }> {
+  return apiFetch<{ user_ids: string[] }>(`/admin/connectors/${encodeURIComponent(connectorId)}/scope`, {
+    method: "PUT",
+    body: JSON.stringify({ user_ids: userIds })
+  });
 }
 
 export function listApprovals(status = "pending"): Promise<Approval[]> {

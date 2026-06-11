@@ -234,4 +234,83 @@ describe("mock api", () => {
     const upstreamLogout = await api.handle("POST", ["auth", "logout"]);
     expect(upstreamLogout.body).toEqual({ ok: true });
   });
+
+  test("supports model admin mock flows without returning plaintext api keys", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
+
+    const initial = await api.handle("GET", ["admin", "models"]);
+    expect(initial.status).toBe(200);
+    expect(initial.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ is_default: true, api_key: expect.stringContaining("…") })
+      ])
+    );
+
+    const created = await api.handle("POST", ["admin", "models"], {
+      name: "OpenAI",
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-4.1",
+      api_key: "sk-live-secret",
+      max_concurrency: 3,
+      is_default: true
+    });
+    expect(created.status).toBe(200);
+    expect(JSON.stringify(created.body)).not.toContain("sk-live-secret");
+
+    const afterCreate = await api.handle("GET", ["admin", "models"]);
+    const defaults = afterCreate.body.filter((model: { is_default: boolean }) => model.is_default);
+    expect(defaults).toHaveLength(1);
+    expect(defaults[0]).toMatchObject({ name: "OpenAI" });
+    expect(JSON.stringify(afterCreate.body)).not.toContain("sk-live-secret");
+
+    const updated = await api.handle("PATCH", ["admin", "models", created.body.id], {
+      name: "OpenAI 生产"
+    });
+    expect(updated.body).toMatchObject({ name: "OpenAI 生产", api_key: expect.stringContaining("…") });
+
+    const route = await api.handle("PUT", ["admin", "model-routes"], {
+      user_id: "u_mock_user",
+      backend_id: created.body.id
+    });
+    expect(route.body).toEqual({ user_id: "u_mock_user", backend_id: created.body.id });
+
+    const cleared = await api.handle("PUT", ["admin", "model-routes"], {
+      user_id: "u_mock_user",
+      backend_id: null
+    });
+    expect(cleared.body).toEqual({ user_id: "u_mock_user", backend_id: null });
+  });
+
+  test("supports connector mock flows without returning env values", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
+
+    const initial = await api.handle("GET", ["admin", "connectors"]);
+    expect(initial.status).toBe(200);
+    expect(initial.body[0]).toMatchObject({
+      status: "connected",
+      env_keys: expect.arrayContaining(["GITHUB_TOKEN"])
+    });
+
+    const created = await api.handle("POST", ["admin", "connectors"], {
+      name: "Slack MCP",
+      transport: "http",
+      url: "https://mcp.example.test",
+      env: { SLACK_TOKEN: "xoxb-live-secret" },
+      scope_all: true
+    });
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({ env_keys: ["SLACK_TOKEN"], scope_all: true });
+    expect(JSON.stringify(created.body)).not.toContain("xoxb-live-secret");
+
+    const scoped = await api.handle("PUT", ["admin", "connectors", created.body.id, "scope"], {
+      user_ids: ["u_mock_user"]
+    });
+    expect(scoped.body).toEqual({ user_ids: ["u_mock_user"] });
+
+    const updated = await api.handle("PATCH", ["admin", "connectors", created.body.id], {
+      enabled: false
+    });
+    expect(updated.body).toMatchObject({ enabled: false, status: "disabled", env_keys: ["SLACK_TOKEN"] });
+    expect(JSON.stringify(updated.body)).not.toContain("xoxb-live-secret");
+  });
 });

@@ -11,21 +11,32 @@ import {
   approveApproval,
   assignMachineOwner,
   cancelTask,
+  createConnector,
   createEnrollmentToken,
   createMachineGrant,
+  createModelBackend,
   createSession,
   createUser,
   createWsTicket,
+  deleteConnector,
+  deleteModelBackend,
+  listConnectors,
   listMachines,
+  listModelBackends,
+  listModelRoutes,
   getSessionMessages,
   listApprovals,
   listMachineGrants,
   listUsers,
   login,
   logout,
+  putConnectorScope,
+  putModelRoute,
   rejectApproval,
   revokeGrant,
-  sendSessionMessage
+  sendSessionMessage,
+  updateConnector,
+  updateModelBackend
 } from "@/lib/api-client";
 
 describe("api-client", () => {
@@ -100,6 +111,172 @@ describe("api-client", () => {
           }
         })
       })
+    );
+  });
+
+  test("uses admin model endpoints through the proxy and keeps keys out of headers", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "model_1",
+              name: "DeepSeek",
+              base_url: "https://api.deepseek.com",
+              model: "deepseek-chat",
+              api_key: "sk-…cdef",
+              max_concurrency: 4,
+              enabled: true,
+              is_default: true,
+              created_at: "2026-06-11T00:00:00Z"
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "model_2", api_key: "sk-…7890" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "model_1", api_key: "sk-…cdef" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ user_id: "u_1", backend_id: "model_1" }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user_id: "u_1", backend_id: null }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listModelBackends()).resolves.toHaveLength(1);
+    await createModelBackend({
+      name: "OpenAI",
+      base_url: "https://api.openai.com/v1",
+      model: "gpt-4.1",
+      api_key: "sk-live-secret",
+      max_concurrency: 3,
+      is_default: false
+    });
+    await updateModelBackend("model_1", { enabled: false, max_concurrency: 2 });
+    await deleteModelBackend("model_1");
+    await expect(listModelRoutes()).resolves.toEqual([{ user_id: "u_1", backend_id: "model_1" }]);
+    await putModelRoute("u_1", null);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/admin/models", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/admin/models",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "OpenAI",
+          base_url: "https://api.openai.com/v1",
+          model: "gpt-4.1",
+          api_key: "sk-live-secret",
+          max_concurrency: 3,
+          is_default: false
+        }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/proxy/admin/models/model_1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ enabled: false, max_concurrency: 2 })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/api/proxy/admin/model-routes",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ user_id: "u_1", backend_id: null })
+      })
+    );
+  });
+
+  test("uses admin connector endpoints through the proxy without echoing env values in reads", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "conn_1",
+              name: "GitHub MCP",
+              transport: "stdio",
+              command: "npx",
+              args: ["-y", "@modelcontextprotocol/server-github"],
+              env_keys: ["GITHUB_TOKEN"],
+              enabled: true,
+              scope_all: false,
+              scopes: ["u_1"],
+              status: "connected",
+              tool_count: 8,
+              created_at: "2026-06-11T00:00:00Z"
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "conn_2", env_keys: ["GITHUB_TOKEN"] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "conn_1", env_keys: ["GITHUB_TOKEN"] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user_ids: ["u_1", "u_2"] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const connectors = await listConnectors();
+    await createConnector({
+      name: "GitHub MCP",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github"],
+      env: { GITHUB_TOKEN: "ghp_live_secret" },
+      scope_all: false
+    });
+    await updateConnector("conn_1", { enabled: false });
+    await putConnectorScope("conn_1", ["u_1", "u_2"]);
+    await deleteConnector("conn_1");
+
+    expect(JSON.stringify(connectors)).not.toContain("ghp_live_secret");
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/admin/connectors", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/admin/connectors",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "GitHub MCP",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-github"],
+          env: { GITHUB_TOKEN: "ghp_live_secret" },
+          scope_all: false
+        }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/proxy/admin/connectors/conn_1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/proxy/admin/connectors/conn_1/scope",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ user_ids: ["u_1", "u_2"] }) })
     );
   });
 

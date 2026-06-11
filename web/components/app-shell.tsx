@@ -1,10 +1,12 @@
 "use client";
 
 import {
+  Bot,
   ClipboardList,
   KeyRound,
   LogOut,
   MessageSquare,
+  Plug,
   Server,
   Settings,
   ShieldCheck,
@@ -30,6 +32,8 @@ const navItems = [
   { href: "/settings", label: "设置", icon: Settings, desktopOnly: true },
   { href: "/admin/users", label: "用户", icon: Users, adminOnly: true },
   { href: "/admin/onboarding", label: "上线", icon: KeyRound, adminOnly: true },
+  { href: "/admin/models", label: "模型", icon: Bot, adminOnly: true },
+  { href: "/admin/connectors", label: "连接器", icon: Plug, adminOnly: true },
   { href: "/audit", label: "审计", icon: ClipboardList, adminOnly: true }
 ];
 

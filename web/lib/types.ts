@@ -38,6 +38,82 @@ export interface WsTicketResponse {
   ticket: string;
 }
 
+export interface ModelBackend {
+  id: string;
+  name: string;
+  base_url: string;
+  model: string;
+  api_key: string;
+  max_concurrency: number;
+  enabled: boolean;
+  is_default: boolean;
+  created_at: string;
+}
+
+export interface CreateModelBackendRequest {
+  name: string;
+  base_url: string;
+  model: string;
+  api_key: string;
+  max_concurrency: number;
+  is_default: boolean;
+}
+
+export interface UpdateModelBackendRequest {
+  name?: string;
+  base_url?: string;
+  model?: string;
+  api_key?: string;
+  max_concurrency?: number;
+  enabled?: boolean;
+  is_default?: boolean;
+}
+
+export interface ModelRoute {
+  user_id: string;
+  backend_id: string | null;
+}
+
+export type ConnectorTransport = "stdio" | "http";
+
+export interface Connector {
+  id: string;
+  name: string;
+  transport: ConnectorTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env_keys: string[];
+  enabled: boolean;
+  scope_all: boolean;
+  scopes: string[];
+  status: string;
+  tool_count: number;
+  created_at: string;
+}
+
+export interface CreateConnectorRequest {
+  name: string;
+  transport: ConnectorTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  enabled?: boolean;
+  scope_all?: boolean;
+}
+
+export interface UpdateConnectorRequest {
+  name?: string;
+  transport?: ConnectorTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  enabled?: boolean;
+  scope_all?: boolean;
+}
+
 export interface CreateUserRequest {
   username: string;
   password: string;
