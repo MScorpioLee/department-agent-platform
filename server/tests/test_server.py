@@ -129,6 +129,19 @@ def test_full_task_flow(client):
         assert listed[0]["task_id"] == tid
 
 
+def test_protocol_version_incompatible_rejected(client):
+    mid, tok = enroll(client, "old-runner")
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/runner", headers={"Authorization": f"Bearer {tok}"}) as ws:
+            ws.send_json(
+                {"type": "hello", "machine_id": mid, "protocol_version": 999, "capabilities": ["remote_exec"]}
+            )
+            ws.receive_json()  # 服务端应已因版本不兼容关闭连接
+    # 机器不应上线
+    machines = client.get("/api/machines", headers=API).json()
+    assert all(m["machine_id"] != mid or m["status"] == "offline" for m in machines)
+
+
 def test_capability_gate(client):
     mid, tok = enroll(client, "caps-machine")
     with client.websocket_connect("/ws/runner", headers={"Authorization": f"Bearer {tok}"}) as ws:

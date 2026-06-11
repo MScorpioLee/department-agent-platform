@@ -12,6 +12,11 @@ from .models import ACTIVE_TASK_STATUSES, RESULT_STATUSES, Machine, Task, utcnow
 router = APIRouter()
 log = logging.getLogger(__name__)
 
+# 服务端支持的协议大版本。无法同时升级所有 Runner,故对旧版需向后兼容;
+# 仅当 Runner 协议大版本不在此集合时拒绝连接并提示升级(见 docs/packaging.md)。
+SUPPORTED_PROTOCOL_VERSIONS = {1}
+WS_CLOSE_PROTOCOL_INCOMPATIBLE = 4426
+
 
 async def mark_machine_lost(app, machine_id: str) -> None:
     """机器断线:状态置 offline,该机所有非终态任务置 lost(不自动重试,见 protocol.md §3.1)。"""
@@ -57,6 +62,19 @@ async def runner_ws(ws: WebSocket) -> None:
         return
     if hello.get("type") != "hello" or hello.get("machine_id") != machine.id:
         await ws.close(code=4400)
+        return
+
+    # 协议版本校验:大版本不兼容直接拒绝,附带原因便于 Runner 提示升级
+    try:
+        proto = int(hello.get("protocol_version", 1))
+    except (TypeError, ValueError):
+        proto = -1
+    if proto not in SUPPORTED_PROTOCOL_VERSIONS:
+        log.warning("机器 %s 协议版本 %s 不受支持,拒绝连接", machine.id, proto)
+        await ws.close(
+            code=WS_CLOSE_PROTOCOL_INCOMPATIBLE,
+            reason=f"protocol_version {proto} 不受支持(服务端支持 {sorted(SUPPORTED_PROTOCOL_VERSIONS)}),请升级 Runner",
+        )
         return
 
     hub = app.state.hub

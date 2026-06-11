@@ -95,7 +95,12 @@ class Runner:
                     }
                 )
             )
-            ack = json.loads(await ws.recv())
+            try:
+                ack = json.loads(await ws.recv())
+            except websockets.ConnectionClosed as exc:
+                if exc.code == 4426:  # 协议版本不兼容
+                    raise RuntimeError(f"协议版本不兼容,请升级 Runner: {exc.reason}") from exc
+                raise
             if ack.get("type") != "hello_ack":
                 raise RuntimeError(f"非预期的握手响应: {ack}")
             log.info("已连接 %s", ws_url)
