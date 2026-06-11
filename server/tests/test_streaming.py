@@ -125,8 +125,11 @@ async def test_run_session_turn_publishes_events(tmp_path, monkeypatch):
         s.add(Session(id="s1", user_id="u1", machine_id="m1"))
         await s.commit()
 
+    from app.connectors import ConnectorManager
+
     bus = EventBus()
     app = SimpleNamespace(state=SimpleNamespace(
+        connectors=ConnectorManager(),
         sessionmaker=sm,
         gateway=FakeGateway([
             _assistant(tool_calls=[{"id": "c1", "type": "function",

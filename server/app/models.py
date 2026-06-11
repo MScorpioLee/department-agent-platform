@@ -110,6 +110,30 @@ class Approval(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class Connector(Base):
+    """外部 MCP 连接器(插件)。command/args 或 url 由管理员显式配置。"""
+
+    __tablename__ = "connectors"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    transport: Mapped[str] = mapped_column(String(16), default="stdio")  # stdio | http
+    command: Mapped[str | None] = mapped_column(String(255))  # stdio:启动命令
+    args: Mapped[list | None] = mapped_column(JSON)  # stdio:参数
+    url: Mapped[str | None] = mapped_column(String(255))  # http:远程地址
+    env_enc: Mapped[str | None] = mapped_column(Text)  # 加密:子进程注入的环境变量(JSON)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    scope_all: Mapped[bool] = mapped_column(Boolean, default=False)  # True=所有用户可用
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ConnectorScope(Base):
+    __tablename__ = "connector_scopes"
+
+    connector_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+
 class ModelBackendRow(Base):
     __tablename__ = "model_backends"
 

@@ -73,3 +73,27 @@ class ModelBackendPatch(BaseModel):
 class ModelRouteIn(BaseModel):
     user_id: str
     backend_id: str | None = None  # None=删除该用户的路由(回落默认)
+
+
+class ConnectorIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    transport: str = Field(default="stdio", pattern="^(stdio|http)$")
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    url: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
+    scope_all: bool = False
+
+
+class ConnectorPatch(BaseModel):
+    name: str | None = None
+    command: str | None = None
+    args: list[str] | None = None
+    url: str | None = None
+    env: dict[str, str] | None = None
+    enabled: bool | None = None
+    scope_all: bool | None = None
+
+
+class ConnectorScopeIn(BaseModel):
+    user_ids: list[str] = Field(default_factory=list)

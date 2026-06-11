@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 
 from .agent import run_agent_turn
 from .model_gateway import ModelError
-from .models import Approval, Machine, Message, ModelUsage, Session, Task, ToolCall, new_id, utcnow
+from .models import Approval, Machine, Message, ModelUsage, Session, Task, ToolCall, User, new_id, utcnow
 from .risk import evaluate_risk
 from .tool_specs import build_specs
 
@@ -126,11 +126,17 @@ async def dispatch_no_wait(app, machine_id: str, tool: str, payload: dict) -> Ta
         return task
 
 
-def _make_executor(app, machine: Machine, session_id: str, user_id: str):
-    """生成给 Agent Loop 用的工具执行器:能力门控 + 高风险审批拦截,再下发到真实 Runner。"""
+def _make_executor(app, machine: Machine, session_id: str, user_id: str, is_admin: bool):
+    """生成给 Agent Loop 用的工具执行器:连接器(MCP)/ 机器能力门控 + 高风险审批,再分发执行。"""
     caps = machine.capabilities or []
+    connectors = app.state.connectors
 
     async def executor(name: str, args: dict) -> dict:
+        # 外部 MCP 连接器工具:按授权放行,在服务端调用(不碰目标机器)
+        if connectors.has_tool(name):
+            if not connectors.can_use(name, user_id, is_admin):
+                return {"error_code": "forbidden", "error_message": f"无权使用连接器工具 {name}"}
+            return await connectors.call(name, args)
         # 门控按机器上报的能力(动态);未上报能力时放行,由 Runner 注册表兜底
         if caps and name not in caps:
             return {"error_code": "tool_not_supported", "error_message": f"目标机器未启用 {name}"}
@@ -196,6 +202,11 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
             )
         ).scalars().all()
         user_id = sess.user_id
+        if user_id == "default":
+            is_admin = True  # X-API-Key 管理通道
+        else:
+            u = await session.get(User, user_id)
+            is_admin = bool(u and u.role == "admin")
         machine_caps = machine.capabilities
         machine_tools = machine.tools
         machine_name = machine.machine_name
@@ -209,7 +220,8 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
 
     system_msg = {"role": "system", "content": SYSTEM_PROMPT.format(machine_name=machine_name, os=machine_os)}
     messages = [system_msg] + [_to_openai(m) for m in history]
-    tools = build_specs(machine_tools, machine_caps)
+    # 机器工具 + 该用户有权使用的外部连接器(MCP)工具
+    tools = build_specs(machine_tools, machine_caps) + app.state.connectors.tools_for(user_id, is_admin)
 
     seq_counter = {"v": next_seq}
     usage_acc = {"prompt": 0, "completion": 0, "total": 0}
@@ -222,7 +234,7 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         usage_acc["total"] += int(u.get("total_tokens") or 0)
         return completion
 
-    executor = _make_executor(app, machine_for_exec, session_id, user_id)
+    executor = _make_executor(app, machine_for_exec, session_id, user_id, is_admin)
 
     async def on_message(msg: dict) -> None:
         seq_counter["v"] += 1
