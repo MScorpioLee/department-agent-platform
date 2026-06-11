@@ -22,9 +22,9 @@
 | [T-DESK-01](T-DESK-01-desktop-client.md) | Tauri 2 桌面客户端(原生直连 + keychain) | T-WEB-02 + M4 | ✅ 已完成(review 通过) |
 | [T-WEB-06](T-WEB-06-admin-onboarding.md) | 管理控制台:用户/Enrollment 上线引导/机器归属/取消任务 | T-WEB-02 | ✅ 已完成 |
 | [T-DESK-02](T-DESK-02-hardening.md) | 桌面端加固:限制性 CSP + 收窄 http 权限 | T-DESK-01 | ✅ 已完成 |
-| [T-PKG-01](T-PKG-01-runner-binary.md) | Runner 打单文件可执行(纯打包,不改逻辑) | — | 🟢 可交 Codex |
-| [T-DEPLOY-01](T-DEPLOY-01-compose.md) | 生产编排 Docker Compose(只新增 deploy/) | — | 🟢 可交 Codex |
-| [T-WEB-07](T-WEB-07-streaming.md) | 对话实时流(消费 /ws/client 事件) | T-WEB-04 | 🟢 可交 Codex(后端就绪) |
+| [T-PKG-01](T-PKG-01-runner-binary.md) | Runner 打单文件可执行(纯打包,不改逻辑) | — | ✅ 已完成 |
+| [T-DEPLOY-01](T-DEPLOY-01-compose.md) | 生产编排 Docker Compose(只新增 deploy/) | — | ✅ 已完成 |
+| [T-WEB-07](T-WEB-07-streaming.md) | 对话实时流(消费 /ws/client 事件) | T-WEB-04 | ✅ 已完成 |
 | [T-WEB-08](T-WEB-08-model-admin.md) | 模型管理页(增删改/默认/用户路由,key 脱敏) | T-WEB-02 + M8 后端 | ✅ 已完成(review 通过) |
 | [T-WEB-09](T-WEB-09-connectors.md) | 插件/连接器管理页(MCP,状态/作用域,env 不回显) | T-WEB-02 + M10 后端 | ✅ 已完成(review 通过) |
 | [T-WEB-10](T-WEB-10-skills.md) | 技能页(启停 + 管理 + GitHub 导入) | T-WEB-02 + M11 后端 | 🟢 **待做**(后端就绪) |
