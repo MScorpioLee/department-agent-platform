@@ -27,7 +27,7 @@
 | [T-WEB-07](T-WEB-07-streaming.md) | 对话实时流(消费 /ws/client 事件) | T-WEB-04 | ✅ 已完成 |
 | [T-WEB-08](T-WEB-08-model-admin.md) | 模型管理页(增删改/默认/用户路由,key 脱敏) | T-WEB-02 + M8 后端 | ✅ 已完成(review 通过) |
 | [T-WEB-09](T-WEB-09-connectors.md) | 插件/连接器管理页(MCP,状态/作用域,env 不回显) | T-WEB-02 + M10 后端 | ✅ 已完成(review 通过) |
-| [T-WEB-10](T-WEB-10-skills.md) | 技能页(启停 + 管理 + GitHub 导入) | T-WEB-02 + M11 后端 | 🟢 **待做**(后端就绪) |
+| [T-WEB-10](T-WEB-10-skills.md) | 技能页(启停 + 管理 + GitHub 导入) | T-WEB-02 + M11 后端 | ✅ 已完成(review 通过) |
 
 > 注:T-PKG-01 / T-DEPLOY-01 是**受控例外**——纯打包/运维,带硬护栏(不改安全逻辑/不动应用源码)。
 > 协议版本校验、Alembic 迁移、流式输出仍属 server/runner 应用层,由 Claude 完成。
