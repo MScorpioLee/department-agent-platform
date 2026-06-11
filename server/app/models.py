@@ -119,6 +119,7 @@ class Skill(Base):
     name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     description: Mapped[str | None] = mapped_column(String(255))
     prompt: Mapped[str] = mapped_column(Text, default="")  # 启用后并入会话的系统提示
+    source: Mapped[str] = mapped_column(String(16), default="custom")  # builtin | imported | custom
     source_ref: Mapped[str | None] = mapped_column(String(255))  # 导入来源(URL/commit)
     scope_all: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

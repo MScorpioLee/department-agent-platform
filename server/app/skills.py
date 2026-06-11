@@ -73,9 +73,26 @@ async def active_skill_prompts(sessionmaker, user_id: str) -> list[str]:
 def _out(sk: Skill, scopes: list[str]) -> dict:
     return {
         "id": sk.id, "name": sk.name, "description": sk.description,
-        "prompt": sk.prompt, "source_ref": sk.source_ref, "scope_all": sk.scope_all,
+        "prompt": sk.prompt, "source": sk.source, "source_ref": sk.source_ref, "scope_all": sk.scope_all,
         "scopes": scopes, "created_at": _iso(sk.created_at),
     }
+
+
+async def seed_builtin_skills(sessionmaker) -> None:
+    """幂等播种内置技能(source=builtin、scope_all=True)。仅创建尚不存在的。"""
+    from .builtin_skills import BUILTIN_SKILLS
+
+    async with sessionmaker() as session:
+        existing = {
+            n for (n,) in (await session.execute(select(Skill.name))).all()
+        }
+        for sk in BUILTIN_SKILLS:
+            if sk["name"] not in existing:
+                session.add(Skill(
+                    id=new_id("skill"), name=sk["name"], description=sk.get("description"),
+                    prompt=sk["prompt"], source="builtin", scope_all=True,
+                ))
+        await session.commit()
 
 
 # ---------- 管理员 ----------
@@ -92,11 +109,11 @@ async def list_skills(request: Request) -> list[dict]:
     return [_out(r, scopes.get(r.id, [])) for r in rows]
 
 
-async def _create_skill(session, name, description, prompt, scope_all, source_ref=None) -> Skill:
+async def _create_skill(session, name, description, prompt, scope_all, source="custom", source_ref=None) -> Skill:
     if (await session.execute(select(Skill).where(Skill.name == name))).scalar_one_or_none():
         raise HTTPException(409, {"code": "name_exists", "message": "同名技能已存在"})
     sk = Skill(id=new_id("skill"), name=name, description=description, prompt=prompt or "",
-               scope_all=scope_all, source_ref=source_ref)
+               scope_all=scope_all, source=source, source_ref=source_ref)
     session.add(sk)
     return sk
 
@@ -125,7 +142,7 @@ async def import_skill(body: SkillImportIn, request: Request) -> dict:
         raise HTTPException(422, {"code": "no_prompt", "message": "清单缺少 prompt"})
     async with request.app.state.sessionmaker() as session:
         sk = await _create_skill(session, name, manifest.get("description"), manifest["prompt"],
-                                 body.scope_all, source_ref=body.url)
+                                 body.scope_all, source="imported", source_ref=body.url)
         await session.commit()
         return _out(sk, [])
 
@@ -194,7 +211,7 @@ async def my_skills(request: Request, user: User = Depends(require_user)) -> lis
     for sk in skills:
         if sk.scope_all or sk.id in my_scopes:
             out.append({"id": sk.id, "name": sk.name, "description": sk.description,
-                        "enabled": bool(states.get(sk.id, False))})
+                        "source": sk.source, "enabled": bool(states.get(sk.id, False))})
     return out
 
 

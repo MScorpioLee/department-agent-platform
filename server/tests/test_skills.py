@@ -41,18 +41,20 @@ def test_create_scope_and_user_toggle(client):
                      json={"name": "reviewer", "description": "审查", "prompt": "你是审查助手"}).json()
     sid = sk["id"]
 
-    # 未授权 → alice 看不到、不能启用
-    assert client.get("/api/skills", headers=alice_h).json() == []
+    # 未授权 → alice 看不到这个 reviewer(但能看到内置技能),也不能启用它
+    before = client.get("/api/skills", headers=alice_h).json()
+    assert not any(s["id"] == sid for s in before)
     assert client.put(f"/api/skills/{sid}/enabled", headers=alice_h, json={"enabled": True}).status_code == 403
 
     # 授权给 alice → 看得到(默认未启用)
     client.put(f"/api/admin/skills/{sid}/scope", headers=h, json={"user_ids": [alice_id]})
-    mine = client.get("/api/skills", headers=alice_h).json()
-    assert mine == [{"id": sid, "name": "reviewer", "description": "审查", "enabled": False}]
+    rev = next(s for s in client.get("/api/skills", headers=alice_h).json() if s["id"] == sid)
+    assert rev["name"] == "reviewer" and rev["enabled"] is False
 
     # 启用
     assert client.put(f"/api/skills/{sid}/enabled", headers=alice_h, json={"enabled": True}).status_code == 200
-    assert client.get("/api/skills", headers=alice_h).json()[0]["enabled"] is True
+    rev2 = next(s for s in client.get("/api/skills", headers=alice_h).json() if s["id"] == sid)
+    assert rev2["enabled"] is True
 
 
 def test_skill_prompt_enters_session(client, monkeypatch):
@@ -86,6 +88,21 @@ def test_skill_prompt_enters_session(client, monkeypatch):
     assert r.status_code == 200, r.text
     # 已启用技能的提示词进入了系统消息
     assert "SKILL_MARKER_必须出现" in captured["system"]
+
+
+def test_builtin_skills_seeded(client):
+    # 启动时已播种内置技能,管理员能看到 source=builtin 的若干技能
+    rows = client.get("/api/admin/skills", headers=admin_h(client)).json()
+    builtins = [s for s in rows if s.get("source") == "builtin"]
+    assert any(s["name"] == "代码审查" for s in builtins)
+    assert all(s["scope_all"] for s in builtins)  # 内置默认全员可见
+
+
+def test_imported_skill_source(client):
+    # 手动创建的技能 source=custom
+    sk = client.post("/api/admin/skills", headers=admin_h(client),
+                     json={"name": "自建", "prompt": "x"}).json()
+    assert sk["source"] == "custom"
 
 
 def test_requires_admin_for_management(client):

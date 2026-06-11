@@ -84,6 +84,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await session.commit()
         # 首次导入 models.yaml,然后从 DB 构建网关(支持运行时热改)
         await bootstrap_models(app, settings)
+        from .skills import seed_builtin_skills
+
+        await seed_builtin_skills(sessionmaker)  # 幂等播种内置技能
         app.state.gateway = await load_gateway_from_db(sessionmaker, settings.secret_key)
         with contextlib.suppress(Exception):  # 连接器失败不阻断启动
             await app.state.connectors.reload(sessionmaker, settings.secret_key)
