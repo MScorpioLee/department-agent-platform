@@ -1,10 +1,12 @@
 "use client";
 
-import { Loader2, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, ShieldCheck, Trash2, UserCog } from "lucide-react";
 import React, { FormEvent, useCallback, useEffect, useState } from "react";
 
 import {
+  assignMachineOwner,
   createMachineGrant,
+  getMe,
   listMachineGrants,
   listUsers,
   revokeGrant
@@ -25,6 +27,7 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
   const [grants, setGrants] = useState<MachineGrant[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [granteeUserId, setGranteeUserId] = useState("");
+  const [ownerUserId, setOwnerUserId] = useState("");
   const [expiresInHours, setExpiresInHours] = useState("24");
   const [loading, setLoading] = useState(true);
   const [usersLoading, setUsersLoading] = useState(true);
@@ -34,6 +37,9 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [userError, setUserError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [assigningOwner, setAssigningOwner] = useState(false);
+  const [ownerMessage, setOwnerMessage] = useState<string | null>(null);
 
   const refreshGrants = useCallback(async () => {
     try {
@@ -55,13 +61,28 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
   useEffect(() => {
     let cancelled = false;
 
+    getMe()
+      .then((user) => {
+        if (!cancelled) {
+          setCurrentUser(user);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
     listUsers()
       .then((items) => {
         if (cancelled) return;
         setUsers(items);
-        if (!granteeUserId && items[0]) {
-          setGranteeUserId(items[0].id);
-        }
+        setGranteeUserId((current) => current || items[0]?.id || "");
+        setOwnerUserId((current) => current || items[0]?.id || "");
       })
       .catch((requestError) => {
         if (cancelled) return;
@@ -81,7 +102,7 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [granteeUserId]);
+  }, []);
 
   async function handleCreateGrant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -130,7 +151,25 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
     }
   }
 
+  async function handleAssignOwner(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAssigningOwner(true);
+    setError(null);
+    setSuccess(null);
+    setOwnerMessage(null);
+    try {
+      await assignMachineOwner(machineId, ownerUserId.trim() || null);
+      setOwnerMessage("归属已更新");
+    } catch (requestError) {
+      const message = getErrorMessage(requestError);
+      setError(getStatus(requestError) === 403 ? `无权更新归属：${message}` : message);
+    } finally {
+      setAssigningOwner(false);
+    }
+  }
+
   const showManualUserInput = usersUnavailable || users.length === 0;
+  const showOwnerForm = currentUser?.role === "admin";
 
   return (
     <section className="space-y-5">
@@ -167,7 +206,61 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
         </div>
       ) : null}
 
+      {ownerMessage ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          {ownerMessage}
+        </div>
+      ) : null}
+
       <div className="grid gap-5 xl:grid-cols-[360px_1fr]">
+        <div className="space-y-5">
+          {showOwnerForm ? (
+            <form
+              onSubmit={(event) => void handleAssignOwner(event)}
+              className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"
+            >
+              <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
+                <UserCog aria-hidden="true" className="h-5 w-5 text-slate-500" />
+                机器归属
+              </div>
+              <div className="mt-4 space-y-3">
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">机器归属</span>
+                  {showManualUserInput ? (
+                    <input
+                      value={ownerUserId}
+                      onChange={(event) => setOwnerUserId(event.target.value)}
+                      placeholder="user_id，留空表示无主"
+                      className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                    />
+                  ) : (
+                    <select
+                      value={ownerUserId}
+                      onChange={(event) => setOwnerUserId(event.target.value)}
+                      disabled={usersLoading}
+                      className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-slate-900 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    >
+                      <option value="">无主</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.display_name || user.username} ({user.id})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <button
+                  type="submit"
+                  disabled={assigningOwner}
+                  className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {assigningOwner ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
+                  保存归属
+                </button>
+              </div>
+            </form>
+          ) : null}
+
         <form
           onSubmit={(event) => void handleCreateGrant(event)}
           className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"
@@ -221,6 +314,7 @@ export function MachineAccessClient({ machineId }: { machineId: string }) {
             </button>
           </div>
         </form>
+        </div>
 
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-4 py-3">

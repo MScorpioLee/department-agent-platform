@@ -34,6 +34,30 @@ export interface User {
   role: string;
 }
 
+export interface CreateUserRequest {
+  username: string;
+  password: string;
+  display_name?: string;
+  role: "user" | "admin";
+}
+
+export interface CreateEnrollmentTokenRequest {
+  owner_user_id?: string;
+  max_uses: number;
+  expires_in_days: number;
+}
+
+export interface EnrollmentTokenResponse {
+  enrollment_token: string;
+  owner_user_id: string | null;
+  max_uses: number;
+}
+
+export interface AssignMachineOwnerResponse {
+  machine_id: string;
+  owner_user_id: string | null;
+}
+
 export interface CreateTaskRequest {
   machine_id: string;
   tool: ToolName;
@@ -43,6 +67,11 @@ export interface CreateTaskRequest {
 export interface CreateTaskResponse {
   task_id: string;
   status: Extract<TaskStatus, "queued">;
+}
+
+export interface CancelTaskResponse {
+  task_id: string;
+  status: Extract<TaskStatus, "cancelled">;
 }
 
 export interface TaskRecord {

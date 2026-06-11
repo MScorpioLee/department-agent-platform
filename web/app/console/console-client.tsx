@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronDown, Loader2, Play, RefreshCw } from "lucide-react";
+import { Ban, ChevronDown, Loader2, Play, RefreshCw } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, Fragment, type MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  cancelTask,
   createTask,
   getTask,
   getTaskOutput,
@@ -33,6 +34,10 @@ function getErrorMessage(error: unknown): string {
 
 function getToolDefinition(tool: ToolName) {
   return TOOL_DEFINITIONS.find((definition) => definition.value === tool) ?? TOOL_DEFINITIONS[0];
+}
+
+function canCancelTask(task: TaskRecord) {
+  return !TERMINAL_STATUSES.has(task.status);
 }
 
 function createDefaultFormValues(tool: ToolName): FormValues {
@@ -151,6 +156,9 @@ export function ConsoleClient() {
   const [expandedOutput, setExpandedOutput] = useState<TaskOutput | null>(null);
   const [expandedError, setExpandedError] = useState<string | null>(null);
   const [notifiedTaskId, setNotifiedTaskId] = useState<string | null>(null);
+  const [cancellingTaskId, setCancellingTaskId] = useState<string | null>(null);
+  const [cancelMessage, setCancelMessage] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const onlineMachines = useMemo(
     () => machines.filter((machine) => machine.status === "online"),
@@ -271,6 +279,8 @@ export function ConsoleClient() {
 
     setSubmitting(true);
     setSubmitError(null);
+    setCancelMessage(null);
+    setCancelError(null);
     setActiveTask(null);
     setActiveOutput(null);
     setNotifiedTaskId(null);
@@ -307,6 +317,36 @@ export function ConsoleClient() {
       setExpandedOutput(output);
     } catch (error) {
       setExpandedError(getErrorMessage(error));
+    }
+  }
+
+  async function handleCancelTask(taskId: string, event?: MouseEvent<HTMLButtonElement>) {
+    event?.stopPropagation();
+    setCancellingTaskId(taskId);
+    setCancelMessage(null);
+    setCancelError(null);
+
+    try {
+      const cancelled = await cancelTask(taskId);
+      const finishedAt = new Date().toISOString();
+      setHistory((current) =>
+        current.map((task) =>
+          task.task_id === taskId
+            ? { ...task, status: cancelled.status, finished_at: finishedAt }
+            : task
+        )
+      );
+      setActiveTask((current) =>
+        current?.task_id === taskId
+          ? { ...current, status: cancelled.status, finished_at: finishedAt }
+          : current
+      );
+      setCancelMessage("任务已取消");
+      void refreshHistory();
+    } catch (error) {
+      setCancelError(getErrorMessage(error));
+    } finally {
+      setCancellingTaskId(null);
     }
   }
 
@@ -426,6 +466,18 @@ export function ConsoleClient() {
             </div>
           ) : null}
 
+          {cancelError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {cancelError}
+            </div>
+          ) : null}
+
+          {cancelMessage ? (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+              {cancelMessage}
+            </div>
+          ) : null}
+
           <button
             type="submit"
             disabled={!selectedMachineId || submitting}
@@ -446,7 +498,24 @@ export function ConsoleClient() {
               <h2 className="text-base font-semibold text-slate-950">下发结果</h2>
               <div className="mt-1 text-xs text-slate-500">{activeTask?.task_id ?? "暂无任务"}</div>
             </div>
-            {activeTask ? <TaskStatusBadge status={activeTask.status} /> : null}
+            <div className="inline-flex items-center gap-2">
+              {activeTask && canCancelTask(activeTask) ? (
+                <button
+                  type="button"
+                  onClick={() => void handleCancelTask(activeTask.task_id)}
+                  disabled={cancellingTaskId !== null}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {cancellingTaskId === activeTask.task_id ? (
+                    <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Ban aria-hidden="true" className="h-4 w-4" />
+                  )}
+                  取消
+                </button>
+              ) : null}
+              {activeTask ? <TaskStatusBadge status={activeTask.status} /> : null}
+            </div>
           </div>
 
           {activeTask ? (
@@ -500,12 +569,13 @@ export function ConsoleClient() {
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">创建时间</th>
                 <th className="px-4 py-3">完成时间</th>
+                <th className="px-4 py-3 text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {history.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={5}>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={6}>
                     暂无任务
                   </td>
                 </tr>
@@ -531,10 +601,30 @@ export function ConsoleClient() {
                       <td className="whitespace-nowrap px-4 py-4 text-slate-600">
                         {formatDateTime(task.finished_at)}
                       </td>
+                      <td className="whitespace-nowrap px-4 py-4 text-right">
+                        {canCancelTask(task) ? (
+                          <button
+                            type="button"
+                            aria-label={`取消 ${task.task_id}`}
+                            onClick={(event) => void handleCancelTask(task.task_id, event)}
+                            disabled={cancellingTaskId !== null}
+                            className="inline-flex h-9 items-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-medium text-red-700 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {cancellingTaskId === task.task_id ? (
+                              <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Ban aria-hidden="true" className="h-4 w-4" />
+                            )}
+                            取消
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
+                      </td>
                     </tr>
                     {expandedTaskId === task.task_id ? (
                       <tr>
-                        <td className="bg-slate-50 px-4 py-4" colSpan={5}>
+                        <td className="bg-slate-50 px-4 py-4" colSpan={6}>
                           {expandedError ? (
                             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                               {expandedError}

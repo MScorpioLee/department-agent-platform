@@ -162,4 +162,70 @@ describe("mock api", () => {
     const revoked = await api.handle("DELETE", ["grants", grant.body.grant_id]);
     expect(revoked.body).toEqual({ revoked: true });
   });
+
+  test("supports admin users, enrollment, assignment, and cancellation in mock mode", async () => {
+    let now = Date.parse("2026-06-10T12:00:00Z");
+    const api = createMockApi({ now: () => now });
+
+    const createdUser = await api.handle("POST", ["users"], {
+      username: "new-user",
+      password: "secret1",
+      display_name: "New User",
+      role: "user"
+    });
+    expect(createdUser.status).toBe(200);
+    expect(createdUser.body).toMatchObject({
+      id: expect.stringMatching(/^u_mock_/),
+      username: "new-user",
+      display_name: "New User",
+      role: "user"
+    });
+
+    const duplicate = await api.handle("POST", ["users"], {
+      username: "new-user",
+      password: "secret1",
+      role: "user"
+    });
+    expect(duplicate).toEqual({
+      status: 409,
+      body: { error: { code: "user_exists", message: "用户名已存在" } }
+    });
+
+    const enrollment = await api.handle("POST", ["enrollment-tokens"], {
+      owner_user_id: createdUser.body.id,
+      max_uses: 2,
+      expires_in_days: 14
+    });
+    expect(enrollment.body).toEqual({
+      enrollment_token: expect.stringMatching(/^et_mock_/),
+      owner_user_id: createdUser.body.id,
+      max_uses: 2
+    });
+
+    const assigned = await api.handle("POST", ["machines", "m_mock_online", "assign"], {
+      user_id: createdUser.body.id
+    });
+    expect(assigned.body).toEqual({
+      machine_id: "m_mock_online",
+      owner_user_id: createdUser.body.id
+    });
+
+    const machines = await api.handle("GET", ["machines"]);
+    expect(machines.body[0]).toMatchObject({
+      machine_id: "m_mock_online",
+      owner_user_id: createdUser.body.id
+    });
+
+    const task = await api.handle("POST", ["tasks"], {
+      machine_id: "m_mock_online",
+      tool: "remote_exec",
+      payload: { workdir: "/tmp", command: "sleep 30", timeout_seconds: 60 }
+    });
+    const cancelled = await api.handle("POST", ["tasks", task.body.task_id, "cancel"]);
+    expect(cancelled.body).toEqual({ task_id: task.body.task_id, status: "cancelled" });
+
+    now += 3000;
+    const loaded = await api.handle("GET", ["tasks", task.body.task_id]);
+    expect(loaded.body).toMatchObject({ status: "cancelled", result: null });
+  });
 });

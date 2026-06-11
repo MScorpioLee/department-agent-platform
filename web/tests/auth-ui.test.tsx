@@ -96,6 +96,8 @@ describe("auth ui", () => {
 
     expect(await screen.findByText("alice")).toBeTruthy();
     expect(screen.getByRole("link", { name: "审计" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "用户" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "上线" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "登出" }));
 
     await waitFor(() => {
@@ -150,5 +152,7 @@ describe("auth ui", () => {
 
     expect(await screen.findByText("bob")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "审计" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "用户" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "上线" })).toBeNull();
   });
 });

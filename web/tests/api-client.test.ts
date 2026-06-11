@@ -9,8 +9,12 @@ import {
   getAuditToolCalls,
   getAuditUsage,
   approveApproval,
+  assignMachineOwner,
+  cancelTask,
+  createEnrollmentToken,
   createMachineGrant,
   createSession,
+  createUser,
   listMachines,
   getSessionMessages,
   listApprovals,
@@ -478,5 +482,74 @@ describe("api-client", () => {
       expect.objectContaining({ method: "DELETE" })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/proxy/users", expect.any(Object));
+  });
+
+  test("uses admin onboarding and task cancellation endpoints", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "u_2", username: "alice", display_name: "Alice", role: "user" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ enrollment_token: "et_mock_1", owner_user_id: "u_2", max_uses: 3 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ machine_id: "m_1", owner_user_id: "u_2" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ task_id: "t_1", status: "cancelled" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createUser({ username: "alice", password: "secret1", display_name: "Alice", role: "user" })
+    ).resolves.toMatchObject({ id: "u_2", username: "alice" });
+    await expect(
+      createEnrollmentToken({ owner_user_id: "u_2", max_uses: 3, expires_in_days: 14 })
+    ).resolves.toMatchObject({ enrollment_token: "et_mock_1", owner_user_id: "u_2" });
+    await expect(assignMachineOwner("m_1", "u_2")).resolves.toEqual({
+      machine_id: "m_1",
+      owner_user_id: "u_2"
+    });
+    await expect(cancelTask("t_1")).resolves.toEqual({ task_id: "t_1", status: "cancelled" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/proxy/users",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ username: "alice", password: "secret1", display_name: "Alice", role: "user" })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/enrollment-tokens",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ owner_user_id: "u_2", max_uses: 3, expires_in_days: 14 })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/proxy/machines/m_1/assign",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ user_id: "u_2" }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/proxy/tasks/t_1/cancel",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 });

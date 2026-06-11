@@ -7,7 +7,8 @@ import type {
   TaskOutput,
   TaskRecord,
   TaskStatus,
-  ToolName
+  ToolName,
+  User
 } from "@/lib/types";
 
 const ALL_CAPABILITIES: ToolName[] = [
@@ -19,6 +20,7 @@ const ALL_CAPABILITIES: ToolName[] = [
 ];
 
 const COMPLETION_DELAY_MS = 3000;
+const TERMINAL_STATUSES = new Set<TaskStatus>(["completed", "failed", "timeout", "cancelled", "lost"]);
 
 export interface MockApiOptions {
   now?: () => number;
@@ -235,9 +237,19 @@ export function createMockApi(options: MockApiOptions = {}) {
   const sessions = new Map<string, InternalSession>();
   const approvals = new Map<string, Approval>();
   const grants = new Map<string, MachineGrant[]>();
+  const users: User[] = [
+    { id: "u_mock_admin", username: "admin", display_name: "管理员", role: "admin" },
+    { id: "u_mock_user", username: "alice", display_name: "Alice", role: "user" }
+  ];
+  const machineOwners = new Map<string, string | null>([
+    ["m_mock_online", "u_mock_admin"],
+    ["m_mock_offline", "u_mock_admin"]
+  ]);
   let taskCounter = 0;
   let sessionCounter = 0;
   let grantCounter = 0;
+  let userCounter = 2;
+  let enrollmentCounter = 0;
 
   function seedApprovals() {
     if (approvals.size > 0) return;
@@ -284,7 +296,7 @@ export function createMockApi(options: MockApiOptions = {}) {
       {
         machine_id: "m_mock_online",
         machine_name: "alice-laptop",
-        owner_user_id: "u_mock_admin",
+        owner_user_id: machineOwners.get("m_mock_online") ?? undefined,
         os: "darwin",
         status: "online",
         last_seen_at: new Date(current - 7000).toISOString(),
@@ -293,7 +305,7 @@ export function createMockApi(options: MockApiOptions = {}) {
       {
         machine_id: "m_mock_offline",
         machine_name: "build-box-01",
-        owner_user_id: "u_mock_admin",
+        owner_user_id: machineOwners.get("m_mock_offline") ?? undefined,
         os: "linux",
         status: "offline",
         last_seen_at: new Date(current - 45 * 60 * 1000).toISOString(),
@@ -303,6 +315,10 @@ export function createMockApi(options: MockApiOptions = {}) {
   }
 
   function materializeTask(entry: InternalTask): TaskRecord {
+    if (TERMINAL_STATUSES.has(entry.task.status)) {
+      return entry.task;
+    }
+
     const elapsed = now() - entry.createdMs;
     const isComplete = elapsed >= COMPLETION_DELAY_MS;
     const status: TaskStatus = isComplete ? "completed" : entry.task.status;
@@ -381,6 +397,89 @@ export function createMockApi(options: MockApiOptions = {}) {
     });
 
     return { status: 200, body: { task_id: taskId, status: "queued" } };
+  }
+
+  function createUser(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const username = typeof request.username === "string" ? request.username.trim() : "";
+    const password = typeof request.password === "string" ? request.password : "";
+    const displayName = typeof request.display_name === "string" ? request.display_name.trim() : "";
+    const role = request.role === "admin" ? "admin" : "user";
+
+    if (!username) return error(422, "validation_error", "username 不能为空");
+    if (password.length < 6) return error(422, "validation_error", "password 最少 6 位");
+    if (users.some((user) => user.username === username)) {
+      return error(409, "user_exists", "用户名已存在");
+    }
+
+    const user: User = {
+      id: `u_mock_${++userCounter}`,
+      username,
+      display_name: displayName || username,
+      role
+    };
+    users.push(user);
+    return { status: 200, body: user };
+  }
+
+  function createEnrollmentToken(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const ownerUserId =
+      typeof request.owner_user_id === "string" && request.owner_user_id.trim()
+        ? request.owner_user_id.trim()
+        : null;
+    const maxUses = typeof request.max_uses === "number" ? request.max_uses : 1;
+    const expiresInDays = typeof request.expires_in_days === "number" ? request.expires_in_days : 7;
+
+    if (ownerUserId && !users.some((user) => user.id === ownerUserId)) {
+      return error(404, "user_not_found", "用户不存在");
+    }
+    if (!Number.isFinite(maxUses) || maxUses <= 0) {
+      return error(422, "validation_error", "max_uses 必须大于 0");
+    }
+    if (!Number.isFinite(expiresInDays) || expiresInDays <= 0) {
+      return error(422, "validation_error", "expires_in_days 必须大于 0");
+    }
+
+    return {
+      status: 200,
+      body: {
+        enrollment_token: `et_mock_${++enrollmentCounter}`,
+        owner_user_id: ownerUserId,
+        max_uses: maxUses
+      }
+    };
+  }
+
+  function assignMachine(machineId: string | undefined, body: unknown): MockApiResponse {
+    if (!machineId || !machines().some((machine) => machine.machine_id === machineId)) {
+      return error(404, "not_found", "机器不存在");
+    }
+    const request = asRecord(body);
+    const userId = typeof request?.user_id === "string" && request.user_id.trim() ? request.user_id.trim() : null;
+    if (userId && !users.some((user) => user.id === userId)) {
+      return error(404, "user_not_found", "用户不存在");
+    }
+    machineOwners.set(machineId, userId);
+    return { status: 200, body: { machine_id: machineId, owner_user_id: userId } };
+  }
+
+  function cancelTask(taskId: string): MockApiResponse {
+    const entry = tasks.get(taskId);
+    if (!entry) return error(404, "not_found", "任务不存在");
+    const task = materializeTask(entry);
+    if (TERMINAL_STATUSES.has(task.status)) {
+      return error(409, "already_finished", "任务已结束");
+    }
+    entry.task = {
+      ...entry.task,
+      status: "cancelled",
+      result: null,
+      finished_at: new Date(now()).toISOString()
+    };
+    return { status: 200, body: { task_id: taskId, status: "cancelled" } };
   }
 
   function createSession(body: unknown): MockApiResponse {
@@ -478,13 +577,15 @@ export function createMockApi(options: MockApiOptions = {}) {
     }
 
     if (resource === "users" && normalizedMethod === "GET" && pathSegments.length === 1) {
-      return {
-        status: 200,
-        body: [
-          { id: "u_mock_admin", username: "admin", display_name: "管理员", role: "admin" },
-          { id: "u_mock_user", username: "alice", display_name: "Alice", role: "user" }
-        ]
-      };
+      return { status: 200, body: users };
+    }
+
+    if (resource === "users" && normalizedMethod === "POST" && pathSegments.length === 1) {
+      return createUser(body);
+    }
+
+    if (resource === "enrollment-tokens" && normalizedMethod === "POST" && pathSegments.length === 1) {
+      return createEnrollmentToken(body);
     }
 
     if (resource === "sessions") {
@@ -566,6 +667,10 @@ export function createMockApi(options: MockApiOptions = {}) {
         grants.set(machineId, currentGrants);
         return { status: 200, body: grant };
       }
+    }
+
+    if (resource === "machines" && pathSegments[2] === "assign" && normalizedMethod === "POST" && pathSegments.length === 3) {
+      return assignMachine(pathSegments[1], body);
     }
 
     if (resource === "grants" && normalizedMethod === "DELETE" && pathSegments.length === 2) {
@@ -667,6 +772,10 @@ export function createMockApi(options: MockApiOptions = {}) {
 
     if (normalizedMethod === "GET" && nested === "output" && pathSegments.length === 3) {
       return { status: 200, body: entry.output };
+    }
+
+    if (normalizedMethod === "POST" && nested === "cancel" && pathSegments.length === 3) {
+      return cancelTask(taskId);
     }
 
     return error(404, "not_found", "接口不存在");

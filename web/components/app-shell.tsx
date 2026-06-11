@@ -1,6 +1,17 @@
 "use client";
 
-import { ClipboardList, LogOut, MessageSquare, Server, Settings, ShieldCheck, TerminalSquare, UserCircle } from "lucide-react";
+import {
+  ClipboardList,
+  KeyRound,
+  LogOut,
+  MessageSquare,
+  Server,
+  Settings,
+  ShieldCheck,
+  TerminalSquare,
+  UserCircle,
+  Users
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
@@ -17,6 +28,8 @@ const navItems = [
   { href: "/chat", label: "对话", icon: MessageSquare },
   { href: "/approvals", label: "审批", icon: ShieldCheck },
   { href: "/settings", label: "设置", icon: Settings, desktopOnly: true },
+  { href: "/admin/users", label: "用户", icon: Users, adminOnly: true },
+  { href: "/admin/onboarding", label: "上线", icon: KeyRound, adminOnly: true },
   { href: "/audit", label: "审计", icon: ClipboardList, adminOnly: true }
 ];
 

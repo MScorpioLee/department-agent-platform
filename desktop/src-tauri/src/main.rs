@@ -325,7 +325,6 @@ fn desktop_notify(app: AppHandle, title: String, body: String) -> DesktopResult<
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             TrayIconBuilder::new()

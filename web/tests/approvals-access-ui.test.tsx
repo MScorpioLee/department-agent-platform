@@ -6,8 +6,10 @@ import ApprovalsPage from "@/app/approvals/page";
 import MachineAccessPage from "@/app/machines/[id]/access/page";
 
 const mocks = vi.hoisted(() => ({
+  assignMachineOwner: vi.fn(),
   approveApproval: vi.fn(),
   createMachineGrant: vi.fn(),
+  getMe: vi.fn(),
   listApprovals: vi.fn(),
   listMachineGrants: vi.fn(),
   listUsers: vi.fn(),
@@ -16,8 +18,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api-client", () => ({
+  assignMachineOwner: mocks.assignMachineOwner,
   approveApproval: mocks.approveApproval,
   createMachineGrant: mocks.createMachineGrant,
+  getMe: mocks.getMe,
   listApprovals: mocks.listApprovals,
   listMachineGrants: mocks.listMachineGrants,
   listUsers: mocks.listUsers,
@@ -75,6 +79,7 @@ describe("approvals and access ui", () => {
   });
 
   test("creates and revokes machine grants", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
     mocks.listMachineGrants
       .mockResolvedValueOnce([
         {
@@ -89,6 +94,7 @@ describe("approvals and access ui", () => {
     mocks.listUsers.mockResolvedValue([{ id: "u_new", username: "new-user", display_name: "New User", role: "user" }]);
     mocks.createMachineGrant.mockResolvedValue({ grant_id: "g_2", expires_at: "2026-06-11T00:00:00Z" });
     mocks.revokeGrant.mockResolvedValue({ revoked: true });
+    mocks.assignMachineOwner.mockResolvedValue({ machine_id: "m_1", owner_user_id: "u_new" });
 
     render(<MachineAccessPage params={{ id: "m_1" }} />);
 
@@ -107,5 +113,12 @@ describe("approvals and access ui", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "撤销 g_1" }));
     await waitFor(() => expect(mocks.revokeGrant).toHaveBeenCalledWith("g_1"));
+
+    fireEvent.change(screen.getByLabelText("机器归属"), { target: { value: "u_new" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存归属" }));
+    await waitFor(() => {
+      expect(mocks.assignMachineOwner).toHaveBeenCalledWith("m_1", "u_new");
+      expect(screen.getByText("归属已更新")).toBeTruthy();
+    });
   });
 });

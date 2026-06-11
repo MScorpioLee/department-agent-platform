@@ -69,6 +69,7 @@ export default function MachinesPage() {
                 <th className="px-4 py-3">机器名</th>
                 <th className="px-4 py-3">OS</th>
                 <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">Owner</th>
                 <th className="px-4 py-3">最后心跳</th>
                 <th className="px-4 py-3">Capabilities</th>
                 <th className="px-4 py-3 text-right">操作</th>
@@ -77,13 +78,13 @@ export default function MachinesPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={6}>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>
                     加载中
                   </td>
                 </tr>
               ) : machines.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-slate-500" colSpan={6}>
+                  <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>
                     暂无机器
                   </td>
                 </tr>
@@ -97,6 +98,9 @@ export default function MachinesPage() {
                     <td className="whitespace-nowrap px-4 py-4 text-slate-600">{machine.os}</td>
                     <td className="whitespace-nowrap px-4 py-4">
                       <MachineStatusBadge status={machine.status} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-4 font-mono text-xs text-slate-600">
+                      {machine.owner_user_id ?? "无主"}
                     </td>
                     <td className="whitespace-nowrap px-4 py-4 text-slate-600">
                       {formatRelativeTime(machine.last_seen_at)}

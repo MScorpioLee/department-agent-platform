@@ -7,6 +7,11 @@ import type {
   Approval,
   ApproveApprovalResponse,
   ChatMessage,
+  AssignMachineOwnerResponse,
+  CancelTaskResponse,
+  CreateEnrollmentTokenRequest,
+  CreateUserRequest,
+  EnrollmentTokenResponse,
   CreateGrantRequest,
   CreateSessionRequest,
   CreateSessionResponse,
@@ -145,6 +150,12 @@ export function getTask(taskId: string): Promise<TaskRecord> {
 
 export function getTaskOutput(taskId: string): Promise<TaskOutput> {
   return apiFetch<TaskOutput>(`/tasks/${encodeURIComponent(taskId)}/output`);
+}
+
+export function cancelTask(taskId: string): Promise<CancelTaskResponse> {
+  return apiFetch<CancelTaskResponse>(`/tasks/${encodeURIComponent(taskId)}/cancel`, {
+    method: "POST"
+  });
 }
 
 export function listTasks(machineId: string, limit = 50): Promise<TaskRecord[]> {
@@ -288,4 +299,30 @@ export function revokeGrant(grantId: string): Promise<{ revoked: boolean }> {
 
 export function listUsers(): Promise<User[]> {
   return apiFetch<User[]>("/users");
+}
+
+export function createUser(request: CreateUserRequest): Promise<User> {
+  return apiFetch<User>("/users", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function createEnrollmentToken(
+  request: CreateEnrollmentTokenRequest
+): Promise<EnrollmentTokenResponse> {
+  return apiFetch<EnrollmentTokenResponse>("/enrollment-tokens", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function assignMachineOwner(
+  machineId: string,
+  userId: string | null
+): Promise<AssignMachineOwnerResponse> {
+  return apiFetch<AssignMachineOwnerResponse>(`/machines/${encodeURIComponent(machineId)}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId })
+  });
 }
