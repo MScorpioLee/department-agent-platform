@@ -2,9 +2,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """全部可用环境变量覆盖,前缀 AGENT_,如 AGENT_API_KEY。"""
+    """配置来源(优先级从高到低):环境变量(前缀 AGENT_) > 同目录 .env 文件 > 默认值。
 
-    model_config = SettingsConfigDict(env_prefix="AGENT_")
+    数据库通过 AGENT_DATABASE_URL 切换本地/远程:
+      - 本地 SQLite:  sqlite+aiosqlite:///./server.db
+      - 远程 Postgres: postgresql+asyncpg://user:pass@db-host:5432/dbname  (需装 .[postgres])
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="AGENT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     database_url: str = "sqlite+aiosqlite:///./server.db"
     # 启动时自动建表(开发/测试用)。生产改用 Alembic 迁移时设为 false,见 server/README.md

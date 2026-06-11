@@ -18,6 +18,22 @@ AGENT_API_KEY=your-api-key \
 
 环境变量见 `app/config.py`(前缀 `AGENT_`),开发期默认值仅供本机调试,部署必须覆盖。
 
+## 数据库配置(本地 / 远程)
+
+数据库由 `AGENT_DATABASE_URL` 一个变量决定,可放在**环境变量**或同目录 **`.env` 文件**(见 `.env.example`):
+
+```bash
+# 本地 SQLite(默认,无需额外驱动)
+AGENT_DATABASE_URL=sqlite+aiosqlite:///./server.db
+
+# 远程 PostgreSQL(本地/局域网/云上均可;需先装 asyncpg 驱动)
+uv pip install -e '.[postgres]'
+AGENT_DATABASE_URL=postgresql+asyncpg://用户:密码@主机:5432/库名
+```
+
+机制基于 SQLAlchemy,理论上任何受支持的数据库(配好对应 async 驱动即可)都能用;
+本项目仅对 SQLite(开发)与 PostgreSQL(生产)做承诺。远程库首次使用见下方迁移说明。
+
 ## 数据库迁移(Alembic)
 
 开发/测试默认启动时自动建表(`AGENT_AUTO_CREATE_TABLES=true`)。**生产**改用迁移:
