@@ -180,6 +180,7 @@ Runner 终止进程(先 SIGTERM,5 秒后 SIGKILL),回 `task_result` 且 `status:
 ```text
 POST /api/auth/login    {username, password}     → {token, user:{id,username,role}}
 GET  /api/auth/me                                → {id, username, display_name, role}
+POST /api/auth/logout                            → 服务端吊销当前 token(立即失效,不只是清 cookie)
 POST /api/users         {username,password,role} → 创建用户(admin)
 POST /api/enrollment-tokens {owner_user_id?,max_uses,expires_in_days} → {enrollment_token}  (admin)
 POST /api/machines/{id}/assign {user_id}         → 重新分配机器归属(admin)

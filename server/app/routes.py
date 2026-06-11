@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from .auth import (
     Principal,
@@ -158,6 +158,16 @@ async def login(body: LoginIn, request: Request) -> dict:
 @router.get("/api/auth/me")
 async def whoami(user: User = Depends(require_user)) -> dict:
     return _user_out(user)
+
+
+@router.post("/api/auth/logout")
+async def logout(request: Request, user: User = Depends(require_user)) -> dict:
+    """服务端吊销当前 token(删除 auth_tokens 记录),登出后该 token 立即失效。"""
+    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    async with request.app.state.sessionmaker() as session:
+        await session.execute(delete(AuthToken).where(AuthToken.token_hash == hash_token(token)))
+        await session.commit()
+    return {"ok": True}
 
 
 @router.post("/api/ws-ticket")

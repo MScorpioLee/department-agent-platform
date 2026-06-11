@@ -91,6 +91,15 @@ def test_password_not_stored_plaintext(client):
     assert verify_password("wrong", h) is False
 
 
+def test_logout_revokes_token(client):
+    tok = login(client).json()["token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/api/auth/me", headers=h).status_code == 200
+    assert client.post("/api/auth/logout", headers=h).status_code == 200
+    # 登出后同一 token 立即失效(服务端已吊销,不只是清 cookie)
+    assert client.get("/api/auth/me", headers=h).status_code == 401
+
+
 def test_weak_password_rejected(client):
     r = client.post(
         "/api/users", headers=auth_header(client), json={"username": "weak", "password": "123", "role": "user"}

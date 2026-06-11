@@ -39,7 +39,9 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
+    # batch 模式仅 SQLite 需要(用于 ALTER);Postgres 用 batch 会把改表变成重建表,故按方言判断
+    is_sqlite = connection.dialect.name == "sqlite"
+    context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=is_sqlite)
     with context.begin_transaction():
         context.run_migrations()
 
