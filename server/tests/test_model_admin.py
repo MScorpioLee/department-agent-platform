@@ -11,6 +11,15 @@ def make_user_token(client, username):
     return client.post("/api/auth/login", json={"username": username, "password": "pass1234"}).json()["token"]
 
 
+def test_provider_presets_catalog(client):
+    r = client.get("/api/admin/model-providers", headers=admin_h(client))
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()]
+    assert "deepseek" in ids and "ollama" in ids and "custom" in ids
+    ds = next(p for p in r.json() if p["id"] == "deepseek")
+    assert ds["base_url"] == "https://api.deepseek.com/v1" and "deepseek-chat" in ds["models"]
+
+
 def test_requires_admin(client):
     utok = make_user_token(client, "alice")
     assert client.get("/api/admin/models", headers={"Authorization": f"Bearer {utok}"}).status_code == 403

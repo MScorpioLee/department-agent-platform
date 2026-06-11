@@ -103,6 +103,14 @@ async def _clear_default(session) -> None:
         row.is_default = False
 
 
+@router.get("/model-providers")
+async def list_providers() -> list[dict]:
+    """预设 Provider 目录,供"添加 Provider"选择(选后自动填 base_url/model)。"""
+    from .model_providers import PRESET_PROVIDERS
+
+    return PRESET_PROVIDERS
+
+
 @router.get("/models")
 async def list_models(request: Request) -> list[dict]:
     sk = request.app.state.settings.secret_key
