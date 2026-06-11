@@ -2,9 +2,10 @@
 
 import { RefreshCw, Send, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 
 import { listMachines } from "@/lib/api-client";
+import { isDesktopClient } from "@/lib/client-target";
 import { formatRelativeTime } from "@/lib/format";
 import type { Machine } from "@/lib/types";
 import { MachineStatusBadge } from "@/components/status-badge";
@@ -14,6 +15,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function MachinesPage() {
+  const desktopClient = isDesktopClient();
   const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +116,11 @@ export default function MachinesPage() {
                     <td className="whitespace-nowrap px-4 py-4 text-right">
                       <div className="inline-flex items-center gap-2">
                         <Link
-                          href={`/machines/${encodeURIComponent(machine.machine_id)}/access`}
+                          href={
+                            desktopClient
+                              ? `/machines/access?machine_id=${encodeURIComponent(machine.machine_id)}`
+                              : `/machines/${encodeURIComponent(machine.machine_id)}/access`
+                          }
                           className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
                         >
                           <ShieldCheck aria-hidden="true" className="h-4 w-4" />

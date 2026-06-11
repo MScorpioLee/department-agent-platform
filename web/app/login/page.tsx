@@ -6,6 +6,7 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { login } from "@/lib/api-client";
+import { isDesktopClient } from "@/lib/client-target";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "登录失败";
@@ -13,6 +14,8 @@ function getErrorMessage(error: unknown): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const desktopClient = isDesktopClient();
+  const [serverUrl, setServerUrl] = useState("http://127.0.0.1:8700");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +27,11 @@ export default function LoginPage() {
     setSubmitting(true);
 
     try {
-      await login(username, password);
+      if (desktopClient) {
+        await login(username, password, { serverUrl });
+      } else {
+        await login(username, password);
+      }
       router.replace("/machines");
     } catch (loginError) {
       setError(getErrorMessage(loginError));
@@ -41,6 +48,19 @@ export default function LoginPage() {
       </div>
 
       <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
+        {desktopClient ? (
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium text-slate-700">Server 地址</span>
+            <input
+              required
+              type="url"
+              value={serverUrl}
+              onChange={(event) => setServerUrl(event.target.value)}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+            />
+          </label>
+        ) : null}
+
         <label className="block space-y-1.5">
           <span className="text-sm font-medium text-slate-700">用户名</span>
           <input

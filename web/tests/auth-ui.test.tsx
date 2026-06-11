@@ -6,6 +6,7 @@ import LoginPage from "@/app/login/page";
 import { AppShell } from "@/components/app-shell";
 
 const mocks = vi.hoisted(() => ({
+  desktop: false,
   getMe: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
@@ -24,9 +25,14 @@ vi.mock("@/lib/api-client", () => ({
   logout: mocks.logout
 }));
 
+vi.mock("@/lib/client-target", () => ({
+  isDesktopClient: () => mocks.desktop
+}));
+
 describe("auth ui", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    mocks.desktop = false;
     mocks.pathname = "/login";
   });
 
@@ -46,6 +52,28 @@ describe("auth ui", () => {
 
     await waitFor(() => {
       expect(mocks.login).toHaveBeenCalledWith("alice", "secret");
+      expect(mocks.replace).toHaveBeenCalledWith("/machines");
+    });
+  });
+
+  test("desktop login asks for server URL and passes it to the API client", async () => {
+    mocks.desktop = true;
+    mocks.login.mockResolvedValue({
+      id: "u_mock",
+      username: "alice",
+      display_name: "alice",
+      role: "user"
+    });
+
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "alice" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "登录" }));
+
+    await waitFor(() => {
+      expect(mocks.login).toHaveBeenCalledWith("alice", "secret", { serverUrl: "http://agent.test" });
       expect(mocks.replace).toHaveBeenCalledWith("/machines");
     });
   });
@@ -74,6 +102,20 @@ describe("auth ui", () => {
       expect(mocks.logout).toHaveBeenCalled();
       expect(mocks.replace).toHaveBeenCalledWith("/login");
     });
+  });
+
+  test("app shell treats trailing slash login route as public", () => {
+    mocks.pathname = "/login/";
+
+    render(
+      <AppShell>
+        <div>登录内容</div>
+      </AppShell>
+    );
+
+    expect(screen.getByText("登录内容")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "登出" })).toBeNull();
+    expect(mocks.getMe).not.toHaveBeenCalled();
   });
 
   test("app shell redirects protected pages to login when unauthenticated", async () => {

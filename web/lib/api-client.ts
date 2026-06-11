@@ -20,6 +20,14 @@ import type {
   TaskRecord,
   User
 } from "@/lib/types";
+import { isDesktopClient } from "@/lib/client-target";
+import {
+  desktopApiFetch,
+  desktopGetMe,
+  desktopLogin,
+  desktopLogout,
+  type DesktopLoginOptions
+} from "@/lib/desktop-bridge";
 
 const PROXY_PREFIX = "/api/proxy";
 
@@ -56,11 +64,46 @@ function isApiErrorBody(value: unknown): value is ApiErrorBody {
   );
 }
 
+function isDesktopCommandError(
+  value: unknown
+): value is { status?: number; code?: string; message?: string } {
+  return typeof value === "object" && value !== null && "message" in value;
+}
+
+async function desktopCommand<T>(request: Promise<T>): Promise<T> {
+  try {
+    return await request;
+  } catch (error) {
+    if (isDesktopCommandError(error)) {
+      throw new ApiClientError(
+        typeof error.status === "number" ? error.status : 0,
+        typeof error.code === "string" ? error.code : "desktop_error",
+        typeof error.message === "string" ? error.message : "桌面客户端请求失败"
+      );
+    }
+    if (error instanceof Error) {
+      throw new ApiClientError(0, "desktop_error", error.message);
+    }
+    throw new ApiClientError(0, "desktop_error", String(error));
+  }
+}
+
 async function apiFetch<T>(
   path: string,
   init: RequestInit = {},
   prefix = PROXY_PREFIX
 ): Promise<T> {
+  if (isDesktopClient()) {
+    const response = await desktopCommand(desktopApiFetch(path, init, prefix));
+    if (response.status < 200 || response.status >= 300) {
+      if (isApiErrorBody(response.body)) {
+        throw new ApiClientError(response.status, response.body.error.code, response.body.error.message);
+      }
+      throw new ApiClientError(response.status, "http_error", `请求失败(${response.status})`);
+    }
+    return response.body as T;
+  }
+
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
 
@@ -109,7 +152,15 @@ export function listTasks(machineId: string, limit = 50): Promise<TaskRecord[]> 
   return apiFetch<TaskRecord[]>(`/tasks?${query.toString()}`);
 }
 
-export async function login(username: string, password: string): Promise<User> {
+export async function login(
+  username: string,
+  password: string,
+  options: DesktopLoginOptions = {}
+): Promise<User> {
+  if (isDesktopClient()) {
+    return desktopCommand(desktopLogin(username, password, options));
+  }
+
   const response = await apiFetch<{ user: User }>(
     "/login",
     {
@@ -122,10 +173,19 @@ export async function login(username: string, password: string): Promise<User> {
 }
 
 export function getMe(): Promise<User> {
+  if (isDesktopClient()) {
+    return desktopCommand(desktopGetMe());
+  }
+
   return apiFetch<User>("/me", {}, "/api/auth");
 }
 
 export async function logout(): Promise<void> {
+  if (isDesktopClient()) {
+    await desktopCommand(desktopLogout());
+    return;
+  }
+
   await apiFetch<{ ok: true }>("/logout", { method: "POST" }, "/api/auth");
 }
 

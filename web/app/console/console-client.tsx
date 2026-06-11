@@ -11,7 +11,9 @@ import {
   listMachines,
   listTasks
 } from "@/lib/api-client";
+import { isDesktopClient } from "@/lib/client-target";
 import { cn } from "@/lib/cn";
+import { notifyDesktop } from "@/lib/desktop-bridge";
 import { formatDateTime } from "@/lib/format";
 import {
   TERMINAL_STATUSES,
@@ -148,6 +150,7 @@ export function ConsoleClient() {
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [expandedOutput, setExpandedOutput] = useState<TaskOutput | null>(null);
   const [expandedError, setExpandedError] = useState<string | null>(null);
+  const [notifiedTaskId, setNotifiedTaskId] = useState<string | null>(null);
 
   const onlineMachines = useMemo(
     () => machines.filter((machine) => machine.status === "online"),
@@ -225,6 +228,10 @@ export function ConsoleClient() {
           if (stopped) return;
           setActiveOutput(output);
           void refreshHistory();
+          if (isDesktopClient() && notifiedTaskId !== task.task_id) {
+            setNotifiedTaskId(task.task_id);
+            void notifyDesktop("任务已完成", `${task.tool} · ${task.status}`);
+          }
           if (interval !== undefined) {
             window.clearInterval(interval);
           }
@@ -246,7 +253,7 @@ export function ConsoleClient() {
         window.clearInterval(interval);
       }
     };
-  }, [activeTaskId, refreshHistory]);
+  }, [activeTaskId, notifiedTaskId, refreshHistory]);
 
   function updateField(name: string, value: FormValue) {
     setFormValues((current) => ({ ...current, [name]: value }));
@@ -266,6 +273,7 @@ export function ConsoleClient() {
     setSubmitError(null);
     setActiveTask(null);
     setActiveOutput(null);
+    setNotifiedTaskId(null);
 
     try {
       const task = await createTask({

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Department Agent",
+  "version": "0.1.0",
+  "identifier": "com.department.agent",
+  "build": {
+    "beforeDevCommand": "cd ../web && NEXT_PUBLIC_CLIENT_TARGET=desktop corepack pnpm dev --hostname 127.0.0.1 --port 3001",
+    "beforeBuildCommand": "cd ../web && NEXT_PUBLIC_CLIENT_TARGET=desktop NEXT_OUTPUT=export corepack pnpm build",
+    "devUrl": "http://127.0.0.1:3001",
+    "frontendDist": "../../web/out"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Agent 控制台",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Department Agent desktop client",
+    "longDescription": "Desktop shell for the Department Agent Platform"
+  }
+}

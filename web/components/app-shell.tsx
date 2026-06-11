@@ -1,12 +1,13 @@
 "use client";
 
-import { ClipboardList, LogOut, MessageSquare, Server, ShieldCheck, TerminalSquare, UserCircle } from "lucide-react";
+import { ClipboardList, LogOut, MessageSquare, Server, Settings, ShieldCheck, TerminalSquare, UserCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 import { useEffect, useState } from "react";
 
 import { getMe, logout } from "@/lib/api-client";
+import { isDesktopClient } from "@/lib/client-target";
 import { cn } from "@/lib/cn";
 import type { User } from "@/lib/types";
 
@@ -15,13 +16,20 @@ const navItems = [
   { href: "/console", label: "控制台", icon: TerminalSquare },
   { href: "/chat", label: "对话", icon: MessageSquare },
   { href: "/approvals", label: "审批", icon: ShieldCheck },
+  { href: "/settings", label: "设置", icon: Settings, desktopOnly: true },
   { href: "/audit", label: "审计", icon: ClipboardList, adminOnly: true }
 ];
+
+function normalizePathname(pathname: string) {
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isLoginPage = pathname === "/login";
+  const normalizedPathname = normalizePathname(pathname);
+  const isLoginPage = normalizedPathname === "/login";
+  const desktopClient = isDesktopClient();
   const [user, setUser] = useState<User | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(!isLoginPage);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -91,8 +99,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="flex gap-2 p-3 lg:block lg:space-y-1">
-          {navItems.filter((item) => !item.adminOnly || user?.role === "admin").map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          {navItems.filter((item) => {
+            if (item.adminOnly && user?.role !== "admin") return false;
+            if (item.desktopOnly && !desktopClient) return false;
+            return true;
+          }).map((item) => {
+            const active = normalizedPathname === item.href || normalizedPathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
               <Link

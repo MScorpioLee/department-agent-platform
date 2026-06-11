@@ -26,6 +26,8 @@ import {
 describe("api-client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    delete (globalThis as typeof globalThis & { __TAURI__?: unknown }).__TAURI__;
   });
 
   test("routes browser calls through the Next proxy without exposing an API key", async () => {
@@ -200,6 +202,97 @@ describe("api-client", () => {
       "/api/auth/logout",
       expect.objectContaining({ method: "POST" })
     );
+  });
+
+  test("desktop mode logs in through Tauri and never calls browser fetch", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLIENT_TARGET", "desktop");
+    const fetchMock = vi.fn();
+    const invokeMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "u_1",
+        username: "admin",
+        display_name: "管理员",
+        role: "admin"
+      })
+      .mockResolvedValueOnce({
+        id: "u_1",
+        username: "admin",
+        display_name: "管理员",
+        role: "admin"
+      })
+      .mockResolvedValueOnce(undefined);
+    vi.stubGlobal("fetch", fetchMock);
+    (globalThis as typeof globalThis & { __TAURI__?: unknown }).__TAURI__ = {
+      core: { invoke: invokeMock }
+    };
+
+    await expect(login("admin", "secret", { serverUrl: "http://agent.test" })).resolves.toMatchObject({
+      username: "admin"
+    });
+    await expect(getMe()).resolves.toMatchObject({ username: "admin" });
+    await expect(logout()).resolves.toBeUndefined();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "desktop_login", {
+      serverUrl: "http://agent.test",
+      username: "admin",
+      password: "secret"
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "desktop_get_me", {});
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "desktop_logout", {});
+  });
+
+  test("desktop mode sends API requests through Tauri with direct server paths", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLIENT_TARGET", "desktop");
+    const fetchMock = vi.fn();
+    const invokeMock = vi.fn(async () => ({
+      status: 200,
+      body: [
+        {
+          machine_id: "m_online",
+          machine_name: "alice-laptop",
+          os: "darwin",
+          status: "online",
+          last_seen_at: "2026-06-10T12:00:00Z",
+          capabilities: ["remote_exec"]
+        }
+      ]
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    (globalThis as typeof globalThis & { __TAURI__?: unknown }).__TAURI__ = {
+      core: { invoke: invokeMock }
+    };
+
+    await expect(listMachines()).resolves.toHaveLength(1);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(invokeMock).toHaveBeenCalledWith("desktop_api_request", {
+      method: "GET",
+      path: "/machines",
+      body: null
+    });
+  });
+
+  test("desktop mode maps Tauri auth errors to ApiClientError", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLIENT_TARGET", "desktop");
+    const invokeMock = vi.fn(async () => {
+      throw {
+        status: 401,
+        code: "unauthorized",
+        message: "token 无效或已过期"
+      };
+    });
+    (globalThis as typeof globalThis & { __TAURI__?: unknown }).__TAURI__ = {
+      core: { invoke: invokeMock }
+    };
+
+    await expect(getMe()).rejects.toMatchObject({
+      name: "ApiClientError",
+      status: 401,
+      code: "unauthorized",
+      message: "token 无效或已过期"
+    } satisfies Partial<ApiClientError>);
   });
 
   test("fetches audit data through the protected proxy", async () => {

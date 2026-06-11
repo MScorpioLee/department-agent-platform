@@ -5,6 +5,8 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { approveApproval, listApprovals, rejectApproval } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
+import { isDesktopClient } from "@/lib/client-target";
+import { notifyDesktop } from "@/lib/desktop-bridge";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import type { Approval } from "@/lib/types";
 
@@ -52,6 +54,9 @@ export default function ApprovalsPage() {
     try {
       const response = await approveApproval(approvalId);
       setActionMessage(`已批准，task_id: ${response.task_id}`);
+      if (isDesktopClient()) {
+        void notifyDesktop("审批已批准", `task_id: ${response.task_id}`);
+      }
       await refresh();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -67,6 +72,9 @@ export default function ApprovalsPage() {
     try {
       const response = await rejectApproval(approvalId);
       setActionMessage(`已拒绝，approval_id: ${response.approval_id}`);
+      if (isDesktopClient()) {
+        void notifyDesktop("审批已拒绝", response.approval_id);
+      }
       await refresh();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
