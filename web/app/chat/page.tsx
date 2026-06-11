@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, MessageSquareText, RefreshCw, Send, ShieldAlert } from "lucide-react";
+import { Loader2, MessageSquareText, RefreshCw, Send, ShieldAlert, TerminalSquare } from "lucide-react";
 import Link from "next/link";
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -10,6 +10,14 @@ import {
   listMachines,
   sendSessionMessage
 } from "@/lib/api-client";
+import {
+  applyChatStreamEvent,
+  connectChatStream,
+  createStreamingTurn,
+  type ChatStreamConnection,
+  type StreamingItem,
+  type StreamingTurn
+} from "@/lib/chat-stream";
 import { cn } from "@/lib/cn";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 import type { ChatMessage, CreateSessionResponse, Machine, ToolCall } from "@/lib/types";
@@ -136,6 +144,105 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   );
 }
 
+function StreamingToolPanel({ item }: { item: Extract<StreamingItem, { kind: "tool" }> }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 font-semibold text-slate-950">
+          <TerminalSquare aria-hidden="true" className="h-4 w-4 text-slate-500" />
+          正在执行 {item.tool}
+        </div>
+        <span
+          className={cn(
+            "rounded-md border px-2 py-1 text-xs",
+            item.status === "running" && "border-blue-200 bg-blue-50 text-blue-700",
+            item.status === "completed" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+            item.status === "failed" && "border-red-200 bg-red-50 text-red-700"
+          )}
+        >
+          {item.status}
+        </span>
+      </div>
+      <JsonBlock value={item.arguments} />
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div>
+          <div className="mb-1 text-xs font-semibold uppercase text-slate-500">stdout</div>
+          <pre className="min-h-24 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+            {item.stdout || " "}
+          </pre>
+        </div>
+        <div>
+          <div className="mb-1 text-xs font-semibold uppercase text-slate-500">stderr</div>
+          <pre className="min-h-24 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+            {item.stderr || " "}
+          </pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StreamingApproval({ item }: { item: Extract<StreamingItem, { kind: "approval" }> }) {
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+      <div className="flex items-center gap-2 font-semibold">
+        <ShieldAlert aria-hidden="true" className="h-4 w-4" />
+        该操作需审批
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+        {item.approvalId ? <span>approval_id: {item.approvalId}</span> : null}
+        {item.riskRule ? <span>risk_rule: {item.riskRule}</span> : null}
+        <Link href="/approvals" className="font-semibold text-amber-950 underline underline-offset-2">
+          去审批
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function StreamingItemView({ item }: { item: StreamingItem }) {
+  if (item.kind === "tool") {
+    return <StreamingToolPanel item={item} />;
+  }
+
+  if (item.kind === "approval") {
+    return <StreamingApproval item={item} />;
+  }
+
+  if (item.kind === "error") {
+    return (
+      <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {item.code}: {item.message}
+      </div>
+    );
+  }
+
+  const isUser = item.kind === "user";
+  return (
+    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+      <div
+        className={cn(
+          "max-w-3xl rounded-md border px-4 py-3 shadow-sm",
+          isUser
+            ? "border-slate-900 bg-slate-900 text-white"
+            : "border-slate-200 bg-white text-slate-900"
+        )}
+      >
+        <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+          <span className={cn("font-semibold uppercase", isUser ? "text-slate-200" : "text-slate-500")}>
+            {isUser ? "user" : "assistant"}
+          </span>
+          <time className={cn(isUser ? "text-slate-300" : "text-slate-400")} dateTime={item.createdAt}>
+            {formatDateTime(item.createdAt)}
+          </time>
+        </div>
+        <div className="whitespace-pre-wrap text-sm leading-6">{item.content}</div>
+        {item.kind === "assistant" ? item.toolCalls?.map((call) => <ToolCallPanel key={call.id} call={call} />) : null}
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPage() {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [selectedMachineId, setSelectedMachineId] = useState("");
@@ -143,6 +250,7 @@ export default function ChatPage() {
   const [messageContent, setMessageContent] = useState("");
   const [session, setSession] = useState<CreateSessionResponse | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [streamTurn, setStreamTurn] = useState<StreamingTurn | null>(null);
   const [loadingMachines, setLoadingMachines] = useState(true);
   const [creatingSession, setCreatingSession] = useState(false);
   const [sending, setSending] = useState(false);
@@ -194,6 +302,7 @@ export default function ChatPage() {
       });
       setSession(created);
       setMessages([]);
+      setStreamTurn(null);
       setMessageContent("");
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -207,17 +316,44 @@ export default function ChatPage() {
     if (!session || !messageContent.trim()) return;
 
     const content = messageContent.trim();
+    const startedTurn = createStreamingTurn(content);
+    let stream: ChatStreamConnection | null = null;
     setSending(true);
     setError(null);
+    setStreamTurn(startedTurn);
     try {
-      await sendSessionMessage(session.session_id, content);
-      const nextMessages = await getSessionMessages(session.session_id);
-      setMessages(nextMessages);
+      stream = await connectChatStream(session.session_id, {
+        onEvent(event) {
+          setStreamTurn((current) => applyChatStreamEvent(current ?? startedTurn, event));
+          if (event.type === "turn_done" || event.type === "turn_error") {
+            setSending(false);
+            stream?.close();
+          }
+        },
+        onError(streamError) {
+          setError(streamError.message);
+          setSending(false);
+        }
+      });
+      void sendSessionMessage(session.session_id, content).catch((requestError: unknown) => {
+        setError(getErrorMessage(requestError));
+        setSending(false);
+        stream?.close();
+      });
       setMessageContent("");
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
-    } finally {
-      setSending(false);
+    } catch {
+      try {
+        await sendSessionMessage(session.session_id, content);
+        const nextMessages = await getSessionMessages(session.session_id);
+        setMessages(nextMessages);
+        setStreamTurn(null);
+        setMessageContent("");
+      } catch (requestError) {
+        setStreamTurn(null);
+        setError(getErrorMessage(requestError));
+      } finally {
+        setSending(false);
+      }
     }
   }
 
@@ -322,19 +458,22 @@ export default function ChatPage() {
               </div>
               {session ? (
                 <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                  {session.status}
+                  {streamTurn?.status ?? session.status}
                 </span>
               ) : null}
             </div>
           </div>
 
           <div className="flex min-h-[470px] flex-col gap-4 px-4 py-5">
-            {messages.length === 0 ? (
+            {messages.length === 0 && !streamTurn ? (
               <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
                 {session ? "发送第一条消息后，这里会展示 user / assistant / tool 时间线。" : "等待创建会话"}
               </div>
             ) : (
-              messages.map((message) => <ChatBubble key={`${message.seq}-${message.role}`} message={message} />)
+              <>
+                {messages.map((message) => <ChatBubble key={`${message.seq}-${message.role}`} message={message} />)}
+                {streamTurn?.items.map((item) => <StreamingItemView key={item.id} item={item} />)}
+              </>
             )}
           </div>
 

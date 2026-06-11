@@ -250,6 +250,7 @@ export function createMockApi(options: MockApiOptions = {}) {
   let grantCounter = 0;
   let userCounter = 2;
   let enrollmentCounter = 0;
+  let wsTicketCounter = 0;
 
   function seedApprovals() {
     if (approvals.size > 0) return;
@@ -584,8 +585,17 @@ export function createMockApi(options: MockApiOptions = {}) {
       return createUser(body);
     }
 
+    if (resource === "auth" && pathSegments[1] === "logout" && normalizedMethod === "POST") {
+      return { status: 200, body: { ok: true } };
+    }
+
     if (resource === "enrollment-tokens" && normalizedMethod === "POST" && pathSegments.length === 1) {
       return createEnrollmentToken(body);
+    }
+
+    if (resource === "ws-ticket" && normalizedMethod === "POST" && pathSegments.length === 1) {
+      wsTicketCounter += 1;
+      return { status: 200, body: { ticket: `mock_ws_ticket_${wsTicketCounter}` } };
     }
 
     if (resource === "sessions") {

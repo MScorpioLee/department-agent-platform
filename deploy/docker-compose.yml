@@ -1,0 +1,75 @@
+name: department-agent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build:
+      context: ../server
+      dockerfile: ../deploy/server.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AGENT_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AGENT_AUTO_CREATE_TABLES: "true"
+      AGENT_MODELS_CONFIG_PATH: /config/models.yaml
+      AGENT_API_KEY: ${AGENT_API_KEY}
+      AGENT_ENROLLMENT_TOKEN: ${AGENT_ENROLLMENT_TOKEN}
+      AGENT_ADMIN_USERNAME: ${AGENT_ADMIN_USERNAME}
+      AGENT_ADMIN_PASSWORD: ${AGENT_ADMIN_PASSWORD}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    volumes:
+      - ./models.yaml:/config/models.yaml:ro
+    expose:
+      - "8700"
+
+  web:
+    build:
+      context: ../web
+      dockerfile: ../deploy/web.Dockerfile
+      args:
+        NEXT_PUBLIC_AGENT_WS_URL: ${NEXT_PUBLIC_AGENT_WS_URL:-}
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      NODE_ENV: production
+      AGENT_API_BASE: http://server:8700
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+      - server
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

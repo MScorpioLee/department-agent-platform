@@ -15,6 +15,7 @@ import {
   createMachineGrant,
   createSession,
   createUser,
+  createWsTicket,
   listMachines,
   getSessionMessages,
   listApprovals,
@@ -166,7 +167,7 @@ describe("api-client", () => {
     );
   });
 
-  test("gets the current user and logs out through auth routes", async () => {
+  test("gets the current user and logs out through upstream then auth routes", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
@@ -179,6 +180,12 @@ describe("api-client", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } }
         )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: true }), {
@@ -200,6 +207,41 @@ describe("api-client", () => {
           "X-API-Key": expect.anything()
         })
       })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/auth/logout",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/auth/logout",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  test("logs out locally even when upstream logout is unavailable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { code: "upstream_unavailable", message: "离线" } }), {
+          status: 502,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(logout()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/proxy/auth/logout",
+      expect.objectContaining({ method: "POST" })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -276,6 +318,22 @@ describe("api-client", () => {
       path: "/machines",
       body: null
     });
+  });
+
+  test("requests websocket tickets through the proxy", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ ticket: "wst_123" }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(createWsTicket()).resolves.toEqual({ ticket: "wst_123" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/proxy/ws-ticket",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 
   test("desktop mode maps Tauri auth errors to ApiClientError", async () => {

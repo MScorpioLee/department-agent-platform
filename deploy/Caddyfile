@@ -1,0 +1,14 @@
+{$PUBLIC_HOST::80} {
+  encode zstd gzip
+
+  @runnerEnroll path /api/runners/enroll
+  reverse_proxy @runnerEnroll server:8700
+
+  @runnerWs path /ws/runner
+  reverse_proxy @runnerWs server:8700
+
+  @clientWs path /ws/client
+  reverse_proxy @clientWs server:8700
+
+  reverse_proxy web:3000
+}

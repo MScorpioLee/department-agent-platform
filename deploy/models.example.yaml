@@ -1,0 +1,10 @@
+backends:
+  - id: deepseek
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    api_key: ${DEEPSEEK_API_KEY}
+    max_concurrency: 2
+
+user_routes: {}
+
+default_backend_id: deepseek

@@ -34,6 +34,10 @@ export interface User {
   role: string;
 }
 
+export interface WsTicketResponse {
+  ticket: string;
+}
+
 export interface CreateUserRequest {
   username: string;
   password: string;

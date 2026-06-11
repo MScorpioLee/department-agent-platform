@@ -227,5 +227,11 @@ describe("mock api", () => {
     now += 3000;
     const loaded = await api.handle("GET", ["tasks", task.body.task_id]);
     expect(loaded.body).toMatchObject({ status: "cancelled", result: null });
+
+    const ticket = await api.handle("POST", ["ws-ticket"]);
+    expect(ticket.body).toEqual({ ticket: expect.stringMatching(/^mock_ws_ticket_/) });
+
+    const upstreamLogout = await api.handle("POST", ["auth", "logout"]);
+    expect(upstreamLogout.body).toEqual({ ok: true });
   });
 });

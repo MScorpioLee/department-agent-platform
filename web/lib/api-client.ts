@@ -23,7 +23,8 @@ import type {
   SendMessageResponse,
   TaskOutput,
   TaskRecord,
-  User
+  User,
+  WsTicketResponse
 } from "@/lib/types";
 import { isDesktopClient } from "@/lib/client-target";
 import {
@@ -197,6 +198,11 @@ export async function logout(): Promise<void> {
     return;
   }
 
+  try {
+    await apiFetch<{ ok: true }>("/auth/logout", { method: "POST" });
+  } catch {
+    // Local cookie clearing must still happen when the upstream server is already offline.
+  }
   await apiFetch<{ ok: true }>("/logout", { method: "POST" }, "/api/auth");
 }
 
@@ -258,6 +264,10 @@ export function sendSessionMessage(sessionId: string, content: string): Promise<
 
 export function getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
   return apiFetch<ChatMessage[]>(`/sessions/${encodeURIComponent(sessionId)}/messages`);
+}
+
+export function createWsTicket(): Promise<WsTicketResponse> {
+  return apiFetch<WsTicketResponse>("/ws-ticket", { method: "POST" });
 }
 
 export function listApprovals(status = "pending"): Promise<Approval[]> {
