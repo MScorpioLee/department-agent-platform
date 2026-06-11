@@ -85,6 +85,15 @@ backend 底层可以是:
 
 - **WebUI**(Next.js)— 第一优先级(M4,任务卡 T-WEB-01)
 - **桌面客户端**(Windows / macOS / Linux)— Tauri 2 壳复用 `web/` 的同一 React 前端,增加系统托盘、任务完成通知、凭据存 OS keychain。**排在用户系统(M4)之后**:分发到员工电脑的客户端必须使用按用户登录的会话凭据,不允许内置共享 API Key(任务卡 T-DESK-01)
+- **CLI / 终端客户端** — 终端里的 agent 客户端(形态对标 Hermes / Codex CLI / Claude Code / Aider)。
+  **关键:它是 Server 的瘦客户端,不是独立 agent**——agent loop 与机器队列都在 Server,CLI 只负责:
+  登录(token 存本地配置/keychain)、对话(经 `/ws/client` 在终端流式展示工具调用与命令输出)、
+  处理审批、以及模型/连接器/技能的管理子命令(走 admin API)。建议 Python(httpx + websockets,与 runner 同语言),
+  先做交互式 REPL,后续可上 TUI(Textual/rich)。
 - **移动端** — 远期,同一 API,暂不排期
 
 为支撑多端复用,前端的 API 访问必须收敛到单一传输层模块(见 T-WEB-01 约定),桌面端只替换传输层(Next 代理 → 直连 Server)。
+CLI 与桌面端一样直连 Server REST + WS(不经 Next 代理),用一次性票据开 `/ws/client`。
+
+> 与 Hermes 等的区别:那些是"本地独立 agent";本平台把大脑、机器队列、审计、审批、归属都放在 Server,
+> 所有客户端(Web/Desktop/CLI)都是薄客户端。这是本平台的定位差异(部门级、多机、可审计),不要把 CLI 做成又一个本地 agent。

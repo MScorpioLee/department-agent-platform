@@ -57,3 +57,9 @@
 - M9 机器能力:Runner 工具插件化(git/node/python… 可装可启用)+ 动态 schema;只来自本地配置
 - M10 插件/连接器:服务端 MCP client 连外部服务(Slack/Notion/GitHub/Web…),市场+凭据+按用户授权审计
 - M11 技能:可启停的任务能力包(封装连接器/提示词,对标 Codex 技能)
+
+## Milestone 12:CLI / 终端客户端
+
+- 终端薄客户端(对标 Hermes/Codex CLI/Claude Code,但 agent loop 在 Server)
+- 登录/对话(终端流式)/审批/机器选择 + 模型/连接器/技能管理子命令
+- Python(httpx + websockets),直连 Server REST + WS;先 REPL 后 TUI
