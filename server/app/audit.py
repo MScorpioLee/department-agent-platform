@@ -3,6 +3,8 @@
 设计:功能性输出(资源所有者看自己机器 stdout)保留原文;此处面向管理员跨用户审阅,统一脱敏。
 """
 
+from datetime import timezone
+
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 
@@ -14,7 +16,11 @@ router = APIRouter(prefix="/api/audit", dependencies=[Depends(require_admin)])
 
 
 def _iso(dt):
-    return dt.isoformat() if dt else None
+    if dt is None:
+        return None
+    if dt.tzinfo is None:  # naive UTC → 补时区,前端才按 UTC 解析
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 
 @router.get("/usage")
