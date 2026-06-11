@@ -13,6 +13,7 @@ from .agent import run_agent_turn
 from .model_gateway import ModelError
 from .models import Approval, Machine, Message, ModelUsage, Session, Task, ToolCall, User, new_id, utcnow
 from .risk import evaluate_risk
+from .skills import active_skill_prompts
 from .tool_specs import build_specs
 
 log = logging.getLogger("agent_runner.services")
@@ -218,7 +219,11 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
     except ModelError as exc:
         raise HTTPException(503, {"code": exc.code, "message": exc.message})
 
-    system_msg = {"role": "system", "content": SYSTEM_PROMPT.format(machine_name=machine_name, os=machine_os)}
+    system_content = SYSTEM_PROMPT.format(machine_name=machine_name, os=machine_os)
+    skill_prompts = await active_skill_prompts(sessionmaker, user_id)
+    if skill_prompts:
+        system_content += "\n\n# 已启用技能(遵循以下指引)\n\n" + "\n\n---\n\n".join(skill_prompts)
+    system_msg = {"role": "system", "content": system_content}
     messages = [system_msg] + [_to_openai(m) for m in history]
     # 机器工具 + 该用户有权使用的外部连接器(MCP)工具
     tools = build_specs(machine_tools, machine_caps) + app.state.connectors.tools_for(user_id, is_admin)

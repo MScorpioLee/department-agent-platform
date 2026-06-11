@@ -97,3 +97,30 @@ class ConnectorPatch(BaseModel):
 
 class ConnectorScopeIn(BaseModel):
     user_ids: list[str] = Field(default_factory=list)
+
+
+class SkillIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    description: str | None = None
+    prompt: str = ""
+    scope_all: bool = False
+
+
+class SkillPatch(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    prompt: str | None = None
+    scope_all: bool | None = None
+
+
+class SkillScopeIn(BaseModel):
+    user_ids: list[str] = Field(default_factory=list)
+
+
+class SkillImportIn(BaseModel):
+    url: str = Field(min_length=1)  # GitHub raw 文件(skill.yaml / SKILL.md)
+    scope_all: bool = False
+
+
+class SkillToggleIn(BaseModel):
+    enabled: bool

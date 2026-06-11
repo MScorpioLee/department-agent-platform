@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from . import audit, client_ws, connector_admin, model_admin, routes, ws
+from . import audit, client_ws, connector_admin, model_admin, routes, skills, ws
 from .auth import hash_password
 from .config import Settings
 from .db import Base
@@ -110,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit.router)
     app.include_router(model_admin.router)
     app.include_router(connector_admin.router)
+    app.include_router(skills.router)
     app.include_router(ws.router)
     app.include_router(client_ws.router)
 

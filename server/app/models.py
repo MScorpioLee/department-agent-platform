@@ -110,6 +110,35 @@ class Approval(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class Skill(Base):
+    """技能:声明式能力包(提示词预设 + 作用域)。可从 GitHub 导入(不执行代码,安全)。"""
+
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(String(255))
+    prompt: Mapped[str] = mapped_column(Text, default="")  # 启用后并入会话的系统提示
+    source_ref: Mapped[str | None] = mapped_column(String(255))  # 导入来源(URL/commit)
+    scope_all: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SkillScope(Base):
+    __tablename__ = "skill_scopes"
+
+    skill_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+
+class UserSkillState(Base):
+    __tablename__ = "user_skill_states"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    skill_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 class Connector(Base):
     """外部 MCP 连接器(插件)。command/args 或 url 由管理员显式配置。"""
 
