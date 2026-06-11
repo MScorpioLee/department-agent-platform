@@ -51,8 +51,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        # 开发/测试自动建表;生产由 Alembic 迁移建表(AGENT_AUTO_CREATE_TABLES=false)
+        if settings.auto_create_tables:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
         # 启动复位:上次进程异常退出可能残留 online 机器与进行中任务
         async with sessionmaker() as session:
             await session.execute(update(Machine).values(status="offline"))

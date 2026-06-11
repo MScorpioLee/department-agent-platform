@@ -18,6 +18,24 @@ AGENT_API_KEY=your-api-key \
 
 环境变量见 `app/config.py`(前缀 `AGENT_`),开发期默认值仅供本机调试,部署必须覆盖。
 
+## 数据库迁移(Alembic)
+
+开发/测试默认启动时自动建表(`AGENT_AUTO_CREATE_TABLES=true`)。**生产**改用迁移:
+
+```bash
+# 1) 关掉自动建表
+export AGENT_AUTO_CREATE_TABLES=false
+export AGENT_DATABASE_URL=postgresql+asyncpg://user:pass@host/db   # 或 sqlite+aiosqlite:///...
+# 2) 升级到最新 schema
+.venv/bin/alembic upgrade head
+# 3) 再启动 Server
+
+# 改了 models 后生成新迁移:
+.venv/bin/alembic revision --autogenerate -m "描述"
+```
+
+迁移配置见 `alembic/env.py`(数据库地址取自 `AGENT_DATABASE_URL`,不在 alembic.ini 硬编码)。
+
 ## 测试
 
 ```bash

@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AGENT_")
 
     database_url: str = "sqlite+aiosqlite:///./server.db"
+    # 启动时自动建表(开发/测试用)。生产改用 Alembic 迁移时设为 false,见 server/README.md
+    auto_create_tables: bool = True
     # 开发期默认值,部署时必须用环境变量覆盖
     enrollment_token: str = "dev-enroll-token"
     api_key: str = "dev-key"
