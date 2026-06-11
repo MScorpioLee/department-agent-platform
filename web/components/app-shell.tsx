@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  BookOpen,
   ClipboardList,
   KeyRound,
   LogOut,
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/console", label: "控制台", icon: TerminalSquare },
   { href: "/chat", label: "对话", icon: MessageSquare },
   { href: "/approvals", label: "审批", icon: ShieldCheck },
+  { href: "/skills", label: "技能", icon: BookOpen },
   { href: "/settings", label: "设置", icon: Settings, desktopOnly: true },
   { href: "/admin/users", label: "用户", icon: Users, adminOnly: true },
   { href: "/admin/onboarding", label: "上线", icon: KeyRound, adminOnly: true },

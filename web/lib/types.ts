@@ -34,6 +34,43 @@ export interface User {
   role: string;
 }
 
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+export interface AdminSkill {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  source_ref?: string | null;
+  scope_all: boolean;
+  scopes: string[];
+  created_at: string;
+}
+
+export interface CreateSkillRequest {
+  name: string;
+  description?: string;
+  prompt: string;
+  scope_all?: boolean;
+}
+
+export interface UpdateSkillRequest {
+  name?: string;
+  description?: string;
+  prompt?: string;
+  scope_all?: boolean;
+}
+
+export interface ImportSkillRequest {
+  url: string;
+  scope_all?: boolean;
+}
+
 export interface WsTicketResponse {
   ticket: string;
 }

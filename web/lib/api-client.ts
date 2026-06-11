@@ -1,5 +1,6 @@
 import type {
   ApiErrorBody,
+  AdminSkill,
   AuditCommand,
   AuditSession,
   AuditToolCall,
@@ -12,10 +13,12 @@ import type {
   Connector,
   CreateEnrollmentTokenRequest,
   CreateConnectorRequest,
+  CreateSkillRequest,
   CreateModelBackendRequest,
   CreateUserRequest,
   EnrollmentTokenResponse,
   CreateGrantRequest,
+  ImportSkillRequest,
   CreateSessionRequest,
   CreateSessionResponse,
   CreateTaskRequest,
@@ -26,9 +29,11 @@ import type {
   ModelRoute,
   RejectApprovalResponse,
   SendMessageResponse,
+  Skill,
   TaskOutput,
   TaskRecord,
   UpdateConnectorRequest,
+  UpdateSkillRequest,
   UpdateModelBackendRequest,
   User,
   WsTicketResponse
@@ -275,6 +280,55 @@ export function getSessionMessages(sessionId: string): Promise<ChatMessage[]> {
 
 export function createWsTicket(): Promise<WsTicketResponse> {
   return apiFetch<WsTicketResponse>("/ws-ticket", { method: "POST" });
+}
+
+export function listSkills(): Promise<Skill[]> {
+  return apiFetch<Skill[]>("/skills");
+}
+
+export function setSkillEnabled(skillId: string, enabled: boolean): Promise<Skill> {
+  return apiFetch<Skill>(`/skills/${encodeURIComponent(skillId)}/enabled`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export function listAdminSkills(): Promise<AdminSkill[]> {
+  return apiFetch<AdminSkill[]>("/admin/skills");
+}
+
+export function createSkill(request: CreateSkillRequest): Promise<AdminSkill> {
+  return apiFetch<AdminSkill>("/admin/skills", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function updateSkill(skillId: string, request: UpdateSkillRequest): Promise<AdminSkill> {
+  return apiFetch<AdminSkill>(`/admin/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(request)
+  });
+}
+
+export function deleteSkill(skillId: string): Promise<{ deleted: boolean }> {
+  return apiFetch<{ deleted: boolean }>(`/admin/skills/${encodeURIComponent(skillId)}`, {
+    method: "DELETE"
+  });
+}
+
+export function putSkillScope(skillId: string, userIds: string[]): Promise<{ user_ids: string[] }> {
+  return apiFetch<{ user_ids: string[] }>(`/admin/skills/${encodeURIComponent(skillId)}/scope`, {
+    method: "PUT",
+    body: JSON.stringify({ user_ids: userIds })
+  });
+}
+
+export function importSkill(request: ImportSkillRequest): Promise<AdminSkill> {
+  return apiFetch<AdminSkill>("/admin/skills/import", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
 }
 
 export function listModelBackends(): Promise<ModelBackend[]> {

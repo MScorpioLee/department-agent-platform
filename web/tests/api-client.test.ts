@@ -13,6 +13,7 @@ import {
   cancelTask,
   createConnector,
   createEnrollmentToken,
+  createSkill,
   createMachineGrant,
   createModelBackend,
   createSession,
@@ -20,10 +21,14 @@ import {
   createWsTicket,
   deleteConnector,
   deleteModelBackend,
+  deleteSkill,
+  importSkill,
   listConnectors,
   listMachines,
+  listAdminSkills,
   listModelBackends,
   listModelRoutes,
+  listSkills,
   getSessionMessages,
   listApprovals,
   listMachineGrants,
@@ -32,11 +37,14 @@ import {
   logout,
   putConnectorScope,
   putModelRoute,
+  putSkillScope,
   rejectApproval,
   revokeGrant,
   sendSessionMessage,
+  setSkillEnabled,
   updateConnector,
-  updateModelBackend
+  updateModelBackend,
+  updateSkill
 } from "@/lib/api-client";
 
 describe("api-client", () => {
@@ -277,6 +285,126 @@ describe("api-client", () => {
       4,
       "/api/proxy/admin/connectors/conn_1/scope",
       expect.objectContaining({ method: "PUT", body: JSON.stringify({ user_ids: ["u_1", "u_2"] }) })
+    );
+  });
+
+  test("uses skill endpoints through the proxy", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: "skill_1", name: "Code Review", description: "检查改动", enabled: true }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "skill_1", name: "Code Review", description: "检查改动", enabled: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "skill_1",
+              name: "Code Review",
+              description: "检查改动",
+              prompt: "Review this diff",
+              source_ref: null,
+              scope_all: true,
+              scopes: [],
+              created_at: "2026-06-11T00:00:00Z"
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "skill_2", name: "Deploy Helper" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: "skill_1", prompt: "New prompt" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ user_ids: ["u_1"] }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "skill_3",
+            name: "Imported Skill",
+            source_ref: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md"
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listSkills()).resolves.toHaveLength(1);
+    await expect(setSkillEnabled("skill_1", false)).resolves.toMatchObject({ enabled: false });
+    await expect(listAdminSkills()).resolves.toHaveLength(1);
+    await createSkill({
+      name: "Deploy Helper",
+      description: "发布检查",
+      prompt: "Prepare release notes",
+      scope_all: false
+    });
+    await updateSkill("skill_1", { prompt: "New prompt" });
+    await putSkillScope("skill_1", ["u_1"]);
+    await importSkill({
+      url: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md",
+      scope_all: true
+    });
+    await deleteSkill("skill_1");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/skills", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/skills/skill_1/enabled",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({ enabled: false }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/proxy/admin/skills", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/proxy/admin/skills",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "Deploy Helper",
+          description: "发布检查",
+          prompt: "Prepare release notes",
+          scope_all: false
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "/api/proxy/admin/skills/skill_1",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ prompt: "New prompt" }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      "/api/proxy/admin/skills/skill_1/scope",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ user_ids: ["u_1"] }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      "/api/proxy/admin/skills/import",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          url: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md",
+          scope_all: true
+        })
+      })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
+      "/api/proxy/admin/skills/skill_1",
+      expect.objectContaining({ method: "DELETE" })
     );
   });
 

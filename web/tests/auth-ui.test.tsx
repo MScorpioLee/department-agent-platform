@@ -100,6 +100,7 @@ describe("auth ui", () => {
     expect(screen.getByRole("link", { name: "上线" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "模型" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "连接器" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "技能" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "登出" }));
 
     await waitFor(() => {
@@ -158,5 +159,6 @@ describe("auth ui", () => {
     expect(screen.queryByRole("link", { name: "上线" })).toBeNull();
     expect(screen.queryByRole("link", { name: "模型" })).toBeNull();
     expect(screen.queryByRole("link", { name: "连接器" })).toBeNull();
+    expect(screen.getByRole("link", { name: "技能" })).toBeTruthy();
   });
 });

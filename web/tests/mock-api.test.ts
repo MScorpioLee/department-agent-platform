@@ -313,4 +313,73 @@ describe("mock api", () => {
     expect(updated.body).toMatchObject({ enabled: false, status: "disabled", env_keys: ["SLACK_TOKEN"] });
     expect(JSON.stringify(updated.body)).not.toContain("xoxb-live-secret");
   });
+
+  test("supports skill mock flows with authorization filtering and import", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
+
+    const userSkills = await api.handle("GET", ["skills"]);
+    expect(userSkills.status).toBe(200);
+    expect(userSkills.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "skill_mock_review", enabled: true }),
+        expect.objectContaining({ id: "skill_mock_release", enabled: false })
+      ])
+    );
+    expect(userSkills.body).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "skill_mock_private" })])
+    );
+
+    const toggled = await api.handle("PUT", ["skills", "skill_mock_review", "enabled"], { enabled: false });
+    expect(toggled.body).toMatchObject({ id: "skill_mock_review", enabled: false });
+
+    const afterToggle = await api.handle("GET", ["skills"]);
+    expect(afterToggle.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "skill_mock_review", enabled: false })])
+    );
+
+    const adminSkills = await api.handle("GET", ["admin", "skills"]);
+    expect(adminSkills.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "skill_mock_private" })])
+    );
+
+    const created = await api.handle("POST", ["admin", "skills"], {
+      name: "Deploy Helper",
+      description: "发布前检查",
+      prompt: "Prepare release notes",
+      scope_all: true
+    });
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({
+      id: expect.stringMatching(/^skill_mock_/),
+      name: "Deploy Helper",
+      scope_all: true
+    });
+
+    const updated = await api.handle("PATCH", ["admin", "skills", created.body.id], {
+      prompt: "New prompt"
+    });
+    expect(updated.body).toMatchObject({ prompt: "New prompt" });
+
+    const scoped = await api.handle("PUT", ["admin", "skills", created.body.id, "scope"], {
+      user_ids: ["u_mock_user"]
+    });
+    expect(scoped.body).toEqual({ user_ids: ["u_mock_user"] });
+
+    const imported = await api.handle("POST", ["admin", "skills", "import"], {
+      url: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md",
+      scope_all: true
+    });
+    expect(imported.body).toMatchObject({
+      source_ref: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md",
+      scope_all: true
+    });
+
+    const afterImport = await api.handle("GET", ["skills"]);
+    expect(afterImport.body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: imported.body.id })])
+    );
+
+    const deleted = await api.handle("DELETE", ["admin", "skills", created.body.id]);
+    expect(deleted.body).toEqual({ deleted: true });
+  });
 });

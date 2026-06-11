@@ -6,6 +6,8 @@ import { GET as meRoute } from "@/app/api/auth/me/route";
 import { POST as logoutRoute } from "@/app/api/auth/logout/route";
 import { DELETE as proxyDelete } from "@/app/api/proxy/[...path]/route";
 import { GET as proxyGet } from "@/app/api/proxy/[...path]/route";
+import { PATCH as proxyPatch } from "@/app/api/proxy/[...path]/route";
+import { PUT as proxyPut } from "@/app/api/proxy/[...path]/route";
 
 function request(url: string, init: RequestInit = {}) {
   return new NextRequest(url, init);
@@ -110,5 +112,31 @@ describe("auth route handlers", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ revoked: true });
+  });
+
+  test("proxy supports PUT and PATCH requests for skill management in mock mode", async () => {
+    process.env.MOCK_API = "1";
+
+    const putResponse = await proxyPut(
+      request("http://localhost/api/proxy/skills/skill_mock_review/enabled", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: false }),
+        headers: { cookie: "agent_token=mock%3Aadmin", "content-type": "application/json" }
+      }),
+      { params: { path: ["skills", "skill_mock_review", "enabled"] } }
+    );
+    expect(putResponse.status).toBe(200);
+    await expect(putResponse.json()).resolves.toMatchObject({ id: "skill_mock_review", enabled: false });
+
+    const patchResponse = await proxyPatch(
+      request("http://localhost/api/proxy/admin/skills/skill_mock_review", {
+        method: "PATCH",
+        body: JSON.stringify({ prompt: "Updated prompt" }),
+        headers: { cookie: "agent_token=mock%3Aadmin", "content-type": "application/json" }
+      }),
+      { params: { path: ["admin", "skills", "skill_mock_review"] } }
+    );
+    expect(patchResponse.status).toBe(200);
+    await expect(patchResponse.json()).resolves.toMatchObject({ id: "skill_mock_review", prompt: "Updated prompt" });
   });
 });

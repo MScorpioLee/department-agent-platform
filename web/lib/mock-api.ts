@@ -1,4 +1,5 @@
 import type {
+  AdminSkill,
   Approval,
   ChatMessage,
   Connector,
@@ -8,6 +9,7 @@ import type {
   MachineGrant,
   ModelBackend,
   ModelRoute,
+  Skill,
   TaskOutput,
   TaskRecord,
   TaskStatus,
@@ -327,6 +329,52 @@ export function createMockApi(options: MockApiOptions = {}) {
     ["conn_mock_github", { GITHUB_TOKEN: "ghp_mock_secret" }],
     ["conn_mock_docs", {}]
   ]);
+  const skills = new Map<string, AdminSkill>([
+    [
+      "skill_mock_review",
+      {
+        id: "skill_mock_review",
+        name: "Code Review",
+        description: "检查代码改动并指出风险点",
+        prompt: "Review the current code change and prioritize bugs, regressions, and missing tests.",
+        source_ref: null,
+        scope_all: true,
+        scopes: [],
+        created_at: new Date(now()).toISOString()
+      }
+    ],
+    [
+      "skill_mock_release",
+      {
+        id: "skill_mock_release",
+        name: "Release Notes",
+        description: "整理变更摘要和发布检查项",
+        prompt: "Prepare concise release notes and note verification coverage.",
+        source_ref: null,
+        scope_all: false,
+        scopes: ["u_mock_user"],
+        created_at: new Date(now() - 60 * 1000).toISOString()
+      }
+    ],
+    [
+      "skill_mock_private",
+      {
+        id: "skill_mock_private",
+        name: "Finance Private",
+        description: "仅用于验证未授权技能不会出现在普通列表",
+        prompt: "Private finance workflow placeholder.",
+        source_ref: null,
+        scope_all: false,
+        scopes: ["u_private_only"],
+        created_at: new Date(now() - 120 * 1000).toISOString()
+      }
+    ]
+  ]);
+  const skillEnabled = new Map<string, boolean>([
+    ["skill_mock_review", true],
+    ["skill_mock_release", false],
+    ["skill_mock_private", true]
+  ]);
   const machineOwners = new Map<string, string | null>([
     ["m_mock_online", "u_mock_admin"],
     ["m_mock_offline", "u_mock_admin"]
@@ -339,6 +387,7 @@ export function createMockApi(options: MockApiOptions = {}) {
   let wsTicketCounter = 0;
   let modelCounter = 2;
   let connectorCounter = 2;
+  let skillCounter = 3;
 
   function seedApprovals() {
     if (approvals.size > 0) return;
@@ -779,6 +828,130 @@ export function createMockApi(options: MockApiOptions = {}) {
     return { status: 200, body: { user_ids: userIds } };
   }
 
+  function isSkillAuthorized(skill: AdminSkill) {
+    return skill.scope_all || skill.scopes.includes("u_mock_user");
+  }
+
+  function materializeSkill(skill: AdminSkill): Skill {
+    return {
+      id: skill.id,
+      name: skill.name,
+      description: skill.description,
+      enabled: skillEnabled.get(skill.id) ?? false
+    };
+  }
+
+  function allAdminSkills() {
+    return Array.from(skills.values());
+  }
+
+  function userSkills() {
+    return allAdminSkills().filter(isSkillAuthorized).map(materializeSkill);
+  }
+
+  function createSkill(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const name = typeof request.name === "string" ? request.name.trim() : "";
+    const description = typeof request.description === "string" ? request.description.trim() : "";
+    const prompt = typeof request.prompt === "string" ? request.prompt.trim() : "";
+
+    if (!name) return error(422, "validation_error", "name 不能为空");
+    if (!prompt) return error(422, "validation_error", "prompt 不能为空");
+
+    const id = `skill_mock_${++skillCounter}`;
+    const skill: AdminSkill = {
+      id,
+      name,
+      description,
+      prompt,
+      source_ref: null,
+      scope_all: request.scope_all === true,
+      scopes: [],
+      created_at: new Date(now()).toISOString()
+    };
+    skills.set(id, skill);
+    skillEnabled.set(id, true);
+    return { status: 200, body: skill };
+  }
+
+  function updateSkill(skillId: string | undefined, body: unknown): MockApiResponse {
+    if (!skillId || !skills.has(skillId)) return error(404, "not_found", "技能不存在");
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const current = skills.get(skillId)!;
+    const next: AdminSkill = { ...current };
+
+    if (typeof request.name === "string") next.name = request.name.trim();
+    if (typeof request.description === "string") next.description = request.description.trim();
+    if (typeof request.prompt === "string") next.prompt = request.prompt.trim();
+    if (typeof request.scope_all === "boolean") {
+      next.scope_all = request.scope_all;
+      if (request.scope_all) next.scopes = [];
+    }
+
+    skills.set(skillId, next);
+    return { status: 200, body: next };
+  }
+
+  function deleteSkill(skillId: string | undefined): MockApiResponse {
+    if (!skillId || !skills.has(skillId)) return error(404, "not_found", "技能不存在");
+    skills.delete(skillId);
+    skillEnabled.delete(skillId);
+    return { status: 200, body: { deleted: true } };
+  }
+
+  function putSkillScope(skillId: string | undefined, body: unknown): MockApiResponse {
+    if (!skillId || !skills.has(skillId)) return error(404, "not_found", "技能不存在");
+    const request = asRecord(body);
+    if (!request || !Array.isArray(request.user_ids)) {
+      return error(422, "validation_error", "user_ids 必须是数组");
+    }
+    const userIds = request.user_ids.filter((item): item is string => typeof item === "string");
+    if (userIds.some((userId) => !users.some((user) => user.id === userId))) {
+      return error(404, "user_not_found", "用户不存在");
+    }
+    const skill = skills.get(skillId)!;
+    skills.set(skillId, { ...skill, scope_all: false, scopes: userIds });
+    return { status: 200, body: { user_ids: userIds } };
+  }
+
+  function importSkill(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const url = typeof request.url === "string" ? request.url.trim() : "";
+    if (!url) return error(422, "validation_error", "url 不能为空");
+
+    const id = `skill_mock_${++skillCounter}`;
+    const fileName = decodeURIComponent(url.split("/").filter(Boolean).pop() ?? "SKILL.md");
+    const name = fileName.toLowerCase() === "skill.md" ? "Imported Skill" : `Imported ${fileName}`;
+    const skill: AdminSkill = {
+      id,
+      name,
+      description: "从 GitHub raw URL 导入的 mock 技能",
+      prompt: `Mock imported prompt from ${url}`,
+      source_ref: url,
+      scope_all: request.scope_all === true,
+      scopes: [],
+      created_at: new Date(now()).toISOString()
+    };
+    skills.set(id, skill);
+    skillEnabled.set(id, true);
+    return { status: 200, body: skill };
+  }
+
+  function setSkillEnabled(skillId: string | undefined, body: unknown): MockApiResponse {
+    if (!skillId) return error(404, "not_found", "技能不存在");
+    const skill = skills.get(skillId);
+    if (!skill || !isSkillAuthorized(skill)) return error(404, "not_found", "技能不存在");
+    const request = asRecord(body);
+    if (!request || typeof request.enabled !== "boolean") {
+      return error(422, "validation_error", "enabled 必须是布尔值");
+    }
+    skillEnabled.set(skillId, request.enabled);
+    return { status: 200, body: materializeSkill(skill) };
+  }
+
   function createSession(body: unknown): MockApiResponse {
     const request = asRecord(body);
     if (!request) return error(422, "validation_error", "请求体必须是对象");
@@ -894,6 +1067,16 @@ export function createMockApi(options: MockApiOptions = {}) {
       return { status: 200, body: { ticket: `mock_ws_ticket_${wsTicketCounter}` } };
     }
 
+    if (resource === "skills") {
+      if (normalizedMethod === "GET" && pathSegments.length === 1) {
+        return { status: 200, body: userSkills() };
+      }
+      if (normalizedMethod === "PUT" && pathSegments[2] === "enabled" && pathSegments.length === 3) {
+        return setSkillEnabled(pathSegments[1], body);
+      }
+      return error(404, "not_found", "接口不存在");
+    }
+
     if (resource === "admin") {
       const adminResource = pathSegments[1];
       const itemId = pathSegments[2];
@@ -941,6 +1124,27 @@ export function createMockApi(options: MockApiOptions = {}) {
         }
         if (normalizedMethod === "PUT" && action === "scope" && pathSegments.length === 4) {
           return putConnectorScope(itemId, body);
+        }
+      }
+
+      if (adminResource === "skills") {
+        if (normalizedMethod === "POST" && itemId === "import" && pathSegments.length === 3) {
+          return importSkill(body);
+        }
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return { status: 200, body: allAdminSkills() };
+        }
+        if (normalizedMethod === "POST" && pathSegments.length === 2) {
+          return createSkill(body);
+        }
+        if (normalizedMethod === "PATCH" && pathSegments.length === 3) {
+          return updateSkill(itemId, body);
+        }
+        if (normalizedMethod === "DELETE" && pathSegments.length === 3) {
+          return deleteSkill(itemId);
+        }
+        if (normalizedMethod === "PUT" && action === "scope" && pathSegments.length === 4) {
+          return putSkillScope(itemId, body);
         }
       }
 
