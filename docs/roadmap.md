@@ -54,5 +54,6 @@
 ## Milestone 8/9/10:三大管理面(设计见 docs/management.md)
 
 - M8 模型管理:DB 化模型后端 + admin API + 管理页(界面增删改/分配/热生效,key 加密不回显)
-- M9 插件管理:Runner 插件系统(git/node/python… 可装可启用)+ 动态工具 schema;插件只来自本地配置
-- M10 Skill 管理:挂载外部 MCP server 作为 Agent 的"外部手脚"(web/DB/API),服务端执行、按用户授权、审计
+- M9 机器能力:Runner 工具插件化(git/node/python… 可装可启用)+ 动态 schema;只来自本地配置
+- M10 插件/连接器:服务端 MCP client 连外部服务(Slack/Notion/GitHub/Web…),市场+凭据+按用户授权审计
+- M11 技能:可启停的任务能力包(封装连接器/提示词,对标 Codex 技能)
