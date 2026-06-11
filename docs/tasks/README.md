@@ -19,7 +19,7 @@
 | [T-WEB-03](T-WEB-03-audit.md) | 管理员审计后台(用量/会话/命令) | T-WEB-02 | 待做 |
 | [T-WEB-04](T-WEB-04-chat.md) | 对话界面(模型驱动远程工具) | T-WEB-02 | 待做 |
 | [T-WEB-05](T-WEB-05-approvals-grants.md) | 审批收件箱 + 跨机器授权 UI | T-WEB-02 | 待做 |
-| [T-DESK-01](T-DESK-01-desktop-client.md) | Tauri 2 桌面壳(复用 web/) | T-WEB-02 + M4(已就绪) | 待细化 |
+| [T-DESK-01](T-DESK-01-desktop-client.md) | Tauri 2 桌面客户端(原生直连 + keychain) | T-WEB-02 + M4(已就绪) | 可开工 |
 
 建议顺序:**02 → 03 / 04 / 05 可并行 → DESK-01**。
 
