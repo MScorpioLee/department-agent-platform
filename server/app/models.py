@@ -109,6 +109,27 @@ class Approval(Base):
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class ModelBackendRow(Base):
+    __tablename__ = "model_backends"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    base_url: Mapped[str] = mapped_column(String(255))
+    model: Mapped[str] = mapped_column(String(128))
+    api_key_enc: Mapped[str | None] = mapped_column(Text)  # 加密存储,API 不回显
+    max_concurrency: Mapped[int] = mapped_column(default=2)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserModelRoute(Base):
+    __tablename__ = "user_model_routes"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    backend_id: Mapped[str] = mapped_column(String(64))
+
+
 class MachineGrant(Base):
     __tablename__ = "machine_grants"
 

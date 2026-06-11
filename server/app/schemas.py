@@ -49,3 +49,27 @@ class AssignMachineIn(BaseModel):
 class GrantIn(BaseModel):
     grantee_user_id: str
     expires_in_hours: int = Field(default=2, ge=1, le=720)
+
+
+class ModelBackendIn(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    base_url: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    api_key: str = ""
+    max_concurrency: int = Field(default=2, ge=1, le=64)
+    is_default: bool = False
+
+
+class ModelBackendPatch(BaseModel):
+    name: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None  # 提供才更新;不提供保持原值
+    max_concurrency: int | None = Field(default=None, ge=1, le=64)
+    enabled: bool | None = None
+    is_default: bool | None = None
+
+
+class ModelRouteIn(BaseModel):
+    user_id: str
+    backend_id: str | None = None  # None=删除该用户的路由(回落默认)

@@ -1,0 +1,90 @@
+"""M8 模型管理:admin CRUD + 密钥脱敏 + 热生效 + 路由。"""
+
+
+def admin_h(client):
+    tok = client.post("/api/auth/login", json={"username": "admin", "password": "adminpass"}).json()["token"]
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def make_user_token(client, username):
+    client.post("/api/users", headers=admin_h(client), json={"username": username, "password": "pass1234"})
+    return client.post("/api/auth/login", json={"username": username, "password": "pass1234"}).json()["token"]
+
+
+def test_requires_admin(client):
+    utok = make_user_token(client, "alice")
+    assert client.get("/api/admin/models", headers={"Authorization": f"Bearer {utok}"}).status_code == 403
+
+
+def test_create_lists_and_redacts_key(client):
+    h = admin_h(client)
+    r = client.post(
+        "/api/admin/models",
+        headers=h,
+        json={"name": "deepseek", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat",
+              "api_key": "sk-supersecret-abcdef123456", "is_default": True},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # 关键:响应不含明文 key
+    assert "supersecret" not in str(body)
+    assert body["api_key"].startswith("sk-") and "…" in body["api_key"]
+    assert body["is_default"] is True
+
+    lst = client.get("/api/admin/models", headers=h).json()
+    assert len(lst) == 1 and lst[0]["name"] == "deepseek"
+    assert "supersecret" not in str(lst)
+
+    # 热生效:网关已能用该后端(默认路由)
+    backend = client.app.state.gateway.resolve(None)
+    assert backend.model == "deepseek-chat"
+
+
+def test_only_one_default(client):
+    h = admin_h(client)
+    client.post("/api/admin/models", headers=h,
+                json={"name": "m1", "base_url": "http://x/v1", "model": "a", "is_default": True})
+    client.post("/api/admin/models", headers=h,
+                json={"name": "m2", "base_url": "http://y/v1", "model": "b", "is_default": True})
+    rows = client.get("/api/admin/models", headers=h).json()
+    defaults = [r for r in rows if r["is_default"]]
+    assert len(defaults) == 1 and defaults[0]["name"] == "m2"
+
+
+def test_duplicate_name_409(client):
+    h = admin_h(client)
+    client.post("/api/admin/models", headers=h, json={"name": "dup", "base_url": "http://x/v1", "model": "a"})
+    r = client.post("/api/admin/models", headers=h, json={"name": "dup", "base_url": "http://x/v1", "model": "a"})
+    assert r.status_code == 409
+
+
+def test_update_and_delete(client):
+    h = admin_h(client)
+    mid = client.post("/api/admin/models", headers=h,
+                      json={"name": "m", "base_url": "http://x/v1", "model": "a", "is_default": True}).json()["id"]
+    # 改 model + key
+    r = client.patch(f"/api/admin/models/{mid}", headers=h, json={"model": "b", "api_key": "sk-newkey-998877"})
+    assert r.json()["model"] == "b"
+    assert client.app.state.gateway.resolve(None).model == "b"  # 热生效
+    # 删除
+    assert client.delete(f"/api/admin/models/{mid}", headers=h).status_code == 200
+    assert client.get("/api/admin/models", headers=h).json() == []
+
+
+def test_user_routes(client):
+    h = admin_h(client)
+    a = client.post("/api/admin/models", headers=h,
+                    json={"name": "ma", "base_url": "http://x/v1", "model": "a", "is_default": True}).json()["id"]
+    b = client.post("/api/admin/models", headers=h,
+                    json={"name": "mb", "base_url": "http://y/v1", "model": "b"}).json()["id"]
+    # 给 alice 路由到 mb
+    client.post("/api/users", headers=h, json={"username": "alice", "password": "pass1234"})
+    alice_id = client.get("/api/auth/me",
+                          headers={"Authorization": f"Bearer {client.post('/api/auth/login', json={'username':'alice','password':'pass1234'}).json()['token']}"}).json()["id"]
+    client.put("/api/admin/model-routes", headers=h, json={"user_id": alice_id, "backend_id": b})
+    gw = client.app.state.gateway
+    assert gw.resolve(alice_id).id == b      # alice → mb
+    assert gw.resolve("someone-else").id == a  # 其他人 → 默认 ma
+    # 删路由 → 回落默认
+    client.put("/api/admin/model-routes", headers=h, json={"user_id": alice_id, "backend_id": None})
+    assert client.app.state.gateway.resolve(alice_id).id == a

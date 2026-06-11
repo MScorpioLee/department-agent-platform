@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # 开发期默认值,部署时必须用环境变量覆盖
     enrollment_token: str = "dev-enroll-token"
     api_key: str = "dev-key"
+    # 加密 DB 中密钥(模型/连接器 api_key)的主密钥,生产必须设强随机值
+    secret_key: str = "dev-secret-key-change-me"
     heartbeat_timeout_seconds: float = 30.0
     sweep_interval_seconds: float = 5.0
     output_cap_bytes: int = 1024 * 1024

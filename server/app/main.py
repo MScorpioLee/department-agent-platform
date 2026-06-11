@@ -9,12 +9,13 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from . import audit, client_ws, routes, ws
+from . import audit, client_ws, model_admin, routes, ws
 from .auth import hash_password
 from .config import Settings
 from .db import Base
 from .events import EventBus, TicketStore
-from .model_gateway import build_gateway
+from .model_admin import bootstrap_models, load_gateway_from_db
+from .model_gateway import ModelGateway
 from .models import ACTIVE_TASK_STATUSES, Machine, Task, User, new_id, utcnow
 from .registry import RunnerHub
 
@@ -80,6 +81,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         )
                     )
             await session.commit()
+        # 首次导入 models.yaml,然后从 DB 构建网关(支持运行时热改)
+        await bootstrap_models(app, settings)
+        app.state.gateway = await load_gateway_from_db(sessionmaker, settings.secret_key)
         sweeper = asyncio.create_task(_sweep_loop(app))
         try:
             yield
@@ -94,12 +98,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.sessionmaker = sessionmaker
     app.state.hub = RunnerHub(settings.output_cap_bytes)
-    app.state.gateway = build_gateway(_load_models_config(settings.models_config_path))
+    app.state.gateway = ModelGateway([])  # 占位;lifespan 中从 DB 构建
     app.state.events = EventBus()
     app.state.tickets = TicketStore()
     app.state.task_sessions = {}  # task_id → session_id,供实时输出路由
     app.include_router(routes.router)
     app.include_router(audit.router)
+    app.include_router(model_admin.router)
     app.include_router(ws.router)
     app.include_router(client_ws.router)
 
