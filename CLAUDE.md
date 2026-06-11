@@ -4,7 +4,8 @@
 - `server/` — Agent Server(Python 3.11+,FastAPI,SQLAlchemy;开发期 SQLite,生产 PostgreSQL)
 - `runner/` — Runner 客户端(Python,websockets + httpx)
 - `web/` — WebUI(Next.js + Tailwind + shadcn/ui),由 Codex 按任务卡实现
-- `desktop/`(规划中,M7)— Tauri 2 桌面壳,复用 web/ 前端,Codex 实现,依赖 M4 用户系统
+- `desktop/`(M7)— Tauri 2 桌面壳,复用 web/ 前端
+- `cli/`(M12)— 终端瘦客户端(Python,直连 Server REST + /ws/client)
 - `docs/` — **protocol.md 与 security.md 是协议/安全的唯一权威来源**,README 仅为概览;发布打包见 packaging.md
 - `docs/tasks/` — 给 Codex(GPT-5.5)的任务卡;Codex 只允许改动任务卡中指定的目录
 
