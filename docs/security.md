@@ -46,6 +46,9 @@
 allowed_roots / blocked_paths 来自 **Runner 本地配置文件**,不接受服务器远程修改
 (防止 Server 被攻破后放宽 Runner 约束)。
 
+**插件(机器能力)同源**:Runner 启用哪些插件(及其工具)只来自本地 `plugins` 配置;
+服务器只能看到 Runner 上报的工具,**不能远程启用插件给机器加能力**(同 allowed_roots 原则)。
+
 ```yaml
 allowed_roots:
   - /Users/alice/projects

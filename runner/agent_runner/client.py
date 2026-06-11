@@ -10,17 +10,11 @@ import websockets
 
 from . import tools
 from .config import RunnerConfig, load_state, save_state
+from .plugins import build_registry
 from .secure_path import PathDenied, PathPolicy
 
 log = logging.getLogger("agent_runner")
 
-CAPABILITIES = [
-    "remote_exec",
-    "remote_read_file",
-    "remote_write_file",
-    "remote_patch_file",
-    "remote_list_files",
-]
 RESULT_CACHE_SIZE = 200  # 幂等:缓存最近任务结果,重复 task_id 直接重发
 
 
@@ -29,6 +23,8 @@ class Runner:
         self.cfg = cfg
         self.state_path = state_path
         self.policy = PathPolicy(cfg.allowed_roots, cfg.blocked_paths)
+        # 按本地配置启用的插件构建工具注册表(服务器不能远程改)
+        self.registry = build_registry(cfg.plugins)
         self.machine_id = ""
         self.runner_token = ""
         self.results_cache: OrderedDict[str, dict] = OrderedDict()
@@ -90,7 +86,8 @@ class Runner:
                         "type": "hello",
                         "machine_id": self.machine_id,
                         "runner_version": "0.1.0",
-                        "capabilities": CAPABILITIES,
+                        "capabilities": list(self.registry),  # 工具名(向后兼容)
+                        "tools": [t.schema() for t in self.registry.values()],  # 工具名+描述+schema(动态)
                         "allowed_roots": self.cfg.allowed_roots,
                     }
                 )
@@ -180,13 +177,14 @@ class Runner:
         tool = frame.get("tool")
         payload = frame.get("payload") or {}
         try:
-            if tool == "remote_exec":
-                status, result = await tools.remote_exec(self.policy, payload, emit, cancel_event)
-            elif tool in tools.FILE_TOOLS:
-                result = await asyncio.to_thread(tools.FILE_TOOLS[tool], self.policy, payload)
-                status = "completed"
+            tool_def = self.registry.get(tool)
+            if tool_def is None:
+                raise tools.ToolError("tool_not_supported", f"本机未启用该工具: {tool}")
+            if tool_def.kind == "exec":
+                status, result = await tool_def.handler(self.policy, payload, emit, cancel_event)
             else:
-                raise tools.ToolError("tool_not_supported", f"不支持的工具: {tool}")
+                result = await asyncio.to_thread(tool_def.handler, self.policy, payload)
+                status = "completed"
         except PathDenied as exc:
             status, result = "failed", {"error_code": "path_denied", "error_message": str(exc)}
         except tools.ToolError as exc:

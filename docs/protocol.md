@@ -74,8 +74,11 @@ Server 回复:
 `4426` 关闭连接并在 reason 中说明,Runner 据此日志提示"请升级 Runner"。服务端对旧版应尽量向后兼容
 (无法同时升级所有 Runner),仅在大版本不兼容时拒绝(见 security.md / packaging.md)。
 
-> 注意:capabilities / allowed_roots 由 Runner 上报仅作展示与工具列表裁剪;
-> **安全检查始终在 Runner 本地基于本地配置执行**,不信任服务器下发的路径约束。
+hello 还可带 `tools`(M9 插件化):Runner 按本地启用的插件上报工具 schema 数组
+`[{name, description, parameters}]`,服务器据此动态构建给模型的工具列表(旧 Runner 不带 tools 时回退到内置工具按 capabilities 裁剪)。
+
+> 注意:capabilities / tools / allowed_roots 由 Runner 上报仅作展示与工具列表构建;
+> **安全检查与插件启用始终在 Runner 本地基于本地配置执行**,服务器不能远程启用插件或放宽路径约束。
 
 ## 2. 心跳与在线状态
 

@@ -32,7 +32,8 @@ class Machine(Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     status: Mapped[str] = mapped_column(String(16), default="offline")
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    capabilities: Mapped[list | None] = mapped_column(JSON)
+    capabilities: Mapped[list | None] = mapped_column(JSON)  # 工具名列表(向后兼容)
+    tools: Mapped[list | None] = mapped_column(JSON)  # Runner 上报的工具 schema(动态)
     allowed_roots: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

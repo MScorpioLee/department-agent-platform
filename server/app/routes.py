@@ -45,15 +45,6 @@ from .services import create_approval, dispatch_no_wait, run_session_turn
 
 router = APIRouter()
 
-SUPPORTED_TOOLS = {
-    "remote_exec",
-    "remote_read_file",
-    "remote_write_file",
-    "remote_patch_file",
-    "remote_list_files",
-}
-
-
 def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
@@ -368,15 +359,15 @@ async def list_machines(request: Request, principal: Principal = Depends(require
 async def create_task(
     body: TaskIn, request: Request, principal: Principal = Depends(require_principal)
 ) -> dict:
-    if body.tool not in SUPPORTED_TOOLS:
-        raise HTTPException(422, {"code": "tool_unknown", "message": f"不支持的工具: {body.tool}"})
     hub = request.app.state.hub
     async with request.app.state.sessionmaker() as session:
         machine = await _machine_or_403(session, body.machine_id, principal)
-        if machine.capabilities and body.tool not in machine.capabilities:
-            raise HTTPException(409, {"code": "tool_not_supported", "message": "目标机器未上报该工具能力"})
+        machine_caps = machine.capabilities or []
     if not hub.is_online(body.machine_id):
         raise HTTPException(409, {"code": "machine_offline", "message": "目标机器不在线"})
+    # 工具有效性按机器上报的能力判断(动态,不再用服务端写死列表;未上报时放行,Runner 兜底)
+    if machine_caps and body.tool not in machine_caps:
+        raise HTTPException(409, {"code": "tool_not_supported", "message": "目标机器未启用该工具"})
 
     # 高风险操作转审批,不直接下发
     rule = evaluate_risk(body.tool, body.payload)

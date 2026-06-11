@@ -89,8 +89,26 @@ TOOL_NAMES = {spec["function"]["name"] for spec in TOOL_SPECS}
 
 
 def specs_for(capabilities: list[str] | None) -> list[dict]:
-    """按目标机器上报的 capabilities 裁剪工具列表(动态工具暴露)。"""
+    """按目标机器上报的 capabilities 裁剪内置工具列表(旧 Runner 回退用)。"""
     if not capabilities:
         return list(TOOL_SPECS)
     allowed = set(capabilities)
     return [s for s in TOOL_SPECS if s["function"]["name"] in allowed]
+
+
+def build_specs(reported_tools: list[dict] | None, capabilities: list[str] | None) -> list[dict]:
+    """优先用 Runner 上报的工具 schema(M9 插件化);旧 Runner 未上报则回退到内置裁剪。"""
+    if reported_tools:
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.get("name"),
+                    "description": t.get("description", ""),
+                    "parameters": t.get("parameters") or {"type": "object", "properties": {}},
+                },
+            }
+            for t in reported_tools
+            if t.get("name")
+        ]
+    return specs_for(capabilities)

@@ -65,11 +65,20 @@ def test_dispatch_to_offline_machine_409(client):
     assert r.json()["error"]["code"] == "machine_offline"
 
 
-def test_unknown_tool_422(client):
-    mid, _ = enroll(client)
-    r = client.post("/api/tasks", headers=API, json={"machine_id": mid, "tool": "rm_rf", "payload": {}})
-    assert r.status_code == 422
-    assert r.json()["error"]["code"] == "tool_unknown"
+def test_unknown_tool_rejected(client):
+    # 动态工具:有效性由机器上报的能力决定;在线机器上请求未启用的工具 → tool_not_supported
+    mid, tok = enroll(client)
+    with client.websocket_connect("/ws/runner", headers={"Authorization": f"Bearer {tok}"}) as ws:
+        hello(ws, mid, caps=["remote_exec"])
+        wait_for(
+            lambda: any(
+                m["machine_id"] == mid and m["status"] == "online"
+                for m in client.get("/api/machines", headers=API).json()
+            )
+        )
+        r = client.post("/api/tasks", headers=API, json={"machine_id": mid, "tool": "rm_rf", "payload": {}})
+        assert r.status_code == 409
+        assert r.json()["error"]["code"] == "tool_not_supported"
 
 
 def test_ws_rejects_bad_token(client):

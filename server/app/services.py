@@ -13,7 +13,7 @@ from .agent import run_agent_turn
 from .model_gateway import ModelError
 from .models import Approval, Machine, Message, ModelUsage, Session, Task, ToolCall, new_id, utcnow
 from .risk import evaluate_risk
-from .tool_specs import TOOL_NAMES, specs_for
+from .tool_specs import build_specs
 
 log = logging.getLogger("agent_runner.services")
 
@@ -128,13 +128,12 @@ async def dispatch_no_wait(app, machine_id: str, tool: str, payload: dict) -> Ta
 
 def _make_executor(app, machine: Machine, session_id: str, user_id: str):
     """生成给 Agent Loop 用的工具执行器:能力门控 + 高风险审批拦截,再下发到真实 Runner。"""
-    caps = machine.capabilities
+    caps = machine.capabilities or []
 
     async def executor(name: str, args: dict) -> dict:
-        if name not in TOOL_NAMES:
-            return {"error_code": "tool_unknown", "error_message": f"未知工具: {name}"}
+        # 门控按机器上报的能力(动态);未上报能力时放行,由 Runner 注册表兜底
         if caps and name not in caps:
-            return {"error_code": "tool_not_supported", "error_message": f"目标机器不支持 {name}"}
+            return {"error_code": "tool_not_supported", "error_message": f"目标机器未启用 {name}"}
         # 高风险操作不直接执行,创建审批并把结果交回模型(由模型转达用户)
         rule = evaluate_risk(name, args)
         if rule:
@@ -198,6 +197,7 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         ).scalars().all()
         user_id = sess.user_id
         machine_caps = machine.capabilities
+        machine_tools = machine.tools
         machine_name = machine.machine_name
         machine_os = machine.os or "unknown"
         machine_for_exec = machine
@@ -209,7 +209,7 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
 
     system_msg = {"role": "system", "content": SYSTEM_PROMPT.format(machine_name=machine_name, os=machine_os)}
     messages = [system_msg] + [_to_openai(m) for m in history]
-    tools = specs_for(machine_caps)
+    tools = build_specs(machine_tools, machine_caps)
 
     seq_counter = {"v": next_seq}
     usage_acc = {"prompt": 0, "completion": 0, "total": 0}

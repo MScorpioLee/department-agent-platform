@@ -14,6 +14,7 @@ class RunnerConfig:
     blocked_paths: list[str] = field(default_factory=list)
     enrollment_token: str = ""  # 仅首次注册需要
     heartbeat_interval_seconds: float = 10.0
+    plugins: list[str] | None = None  # 启用的插件;None=默认(exec+file)。只来自本地配置
 
 
 def load_config(path: str) -> RunnerConfig:
@@ -21,6 +22,7 @@ def load_config(path: str) -> RunnerConfig:
     for key in ("server_url", "machine_name", "allowed_roots"):
         if not raw.get(key):
             raise ValueError(f"配置缺少必填项: {key}")
+    plugins = raw.get("plugins")
     return RunnerConfig(
         server_url=str(raw["server_url"]).rstrip("/"),
         machine_name=str(raw["machine_name"]),
@@ -28,6 +30,7 @@ def load_config(path: str) -> RunnerConfig:
         blocked_paths=[str(p) for p in raw.get("blocked_paths") or []],
         enrollment_token=str(raw.get("enrollment_token") or ""),
         heartbeat_interval_seconds=float(raw.get("heartbeat_interval_seconds") or 10.0),
+        plugins=[str(p) for p in plugins] if plugins else None,
     )
 
 

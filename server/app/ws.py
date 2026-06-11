@@ -88,6 +88,7 @@ async def runner_ws(ws: WebSocket) -> None:
                 last_seen_at=utcnow(),
                 runner_version=hello.get("runner_version"),
                 capabilities=hello.get("capabilities"),
+                tools=hello.get("tools"),
                 allowed_roots=hello.get("allowed_roots"),
             )
         )
