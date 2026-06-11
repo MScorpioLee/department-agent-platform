@@ -20,8 +20,13 @@
 | [T-WEB-04](T-WEB-04-chat.md) | 对话界面(模型驱动远程工具) | T-WEB-02 | ✅ 已完成 |
 | [T-WEB-05](T-WEB-05-approvals-grants.md) | 审批收件箱 + 跨机器授权 UI | T-WEB-02 | ✅ 已完成 |
 | [T-DESK-01](T-DESK-01-desktop-client.md) | Tauri 2 桌面客户端(原生直连 + keychain) | T-WEB-02 + M4 | ✅ 已完成(review 通过) |
-| [T-WEB-06](T-WEB-06-admin-onboarding.md) | 管理控制台:用户/Enrollment 上线引导/机器归属/取消任务 | T-WEB-02 | 🔴 待做(真实可用关键) |
-| [T-DESK-02](T-DESK-02-hardening.md) | 桌面端加固:限制性 CSP + 收窄 http 权限 | T-DESK-01 | 🟡 待做 |
+| [T-WEB-06](T-WEB-06-admin-onboarding.md) | 管理控制台:用户/Enrollment 上线引导/机器归属/取消任务 | T-WEB-02 | ✅ 已完成 |
+| [T-DESK-02](T-DESK-02-hardening.md) | 桌面端加固:限制性 CSP + 收窄 http 权限 | T-DESK-01 | ✅ 已完成 |
+| [T-PKG-01](T-PKG-01-runner-binary.md) | Runner 打单文件可执行(纯打包,不改逻辑) | — | 🟢 可交 Codex |
+| [T-DEPLOY-01](T-DEPLOY-01-compose.md) | 生产编排 Docker Compose(只新增 deploy/) | — | 🟢 可交 Codex |
+
+> 注:T-PKG-01 / T-DEPLOY-01 是**受控例外**——纯打包/运维,带硬护栏(不改安全逻辑/不动应用源码)。
+> 协议版本校验、Alembic 迁移、流式输出仍属 server/runner 应用层,由 Claude 完成。
 
 下一批建议:**T-WEB-06 优先**(管理员才能把人/机器拉进平台);T-DESK-02 可并行。
 
