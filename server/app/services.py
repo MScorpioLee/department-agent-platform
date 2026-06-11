@@ -24,14 +24,25 @@ SYSTEM_PROMPT = (
 )
 
 
-async def dispatch_and_wait(app, machine_id: str, tool: str, payload: dict) -> Task:
+async def _emit(app, session_id: str | None, event: dict) -> None:
+    """向会话事件总线发布事件(无订阅者时为空操作)。"""
+    if not session_id:
+        return
+    bus = getattr(app.state, "events", None)
+    if bus is not None:
+        await bus.publish(session_id, event)
+
+
+async def dispatch_and_wait(app, machine_id: str, tool: str, payload: dict, session_id: str | None = None) -> Task:
     """创建任务、下发给 Runner 并等待终态,返回最终 Task 行。
 
     与 POST /api/tasks 的 fire-and-forget 不同,这里会阻塞到任务结束(或超时/掉线)。
+    session_id 非空时,把 task 注册到 task_sessions,使其实时输出能路由到该会话订阅者。
     """
     hub = app.state.hub
     timeout = app.state.settings.tool_wait_timeout_seconds
     sessionmaker = app.state.sessionmaker
+    task_sessions = getattr(app.state, "task_sessions", None)
 
     async with sessionmaker() as session:
         task = Task(id=new_id("t"), machine_id=machine_id, tool=tool, payload=payload)
@@ -45,6 +56,8 @@ async def dispatch_and_wait(app, machine_id: str, tool: str, payload: dict) -> T
             await session.commit()
             return task
 
+        if task_sessions is not None and session_id:
+            task_sessions[task_id] = session_id
         hub.open_buffer(task_id)
         hub.expect(task_id)
         sent = await hub.send(
@@ -54,6 +67,8 @@ async def dispatch_and_wait(app, machine_id: str, tool: str, payload: dict) -> T
         if not sent:
             hub.close_buffer(task_id)
             hub.resolve(task_id)
+            if task_sessions is not None:
+                task_sessions.pop(task_id, None)
             task.status = "lost"
             task.finished_at = utcnow()
             await session.commit()
@@ -62,7 +77,11 @@ async def dispatch_and_wait(app, machine_id: str, tool: str, payload: dict) -> T
         task.dispatched_at = utcnow()
         await session.commit()
 
-    await hub.wait(task_id, timeout)  # 超时返回 False,任务仍可能稍后回结果
+    try:
+        await hub.wait(task_id, timeout)  # 超时返回 False,任务仍可能稍后回结果
+    finally:
+        if task_sessions is not None:
+            task_sessions.pop(task_id, None)
 
     async with sessionmaker() as session:
         return await session.get(Task, task_id)
@@ -120,13 +139,15 @@ def _make_executor(app, machine: Machine, session_id: str, user_id: str):
         rule = evaluate_risk(name, args)
         if rule:
             approval_id = await create_approval(app, machine.id, session_id, user_id, name, args, rule)
+            await _emit(app, session_id, {"type": "approval_required", "tool": name, "approval_id": approval_id, "risk_rule": rule})
             return {
                 "needs_approval": True,
                 "approval_id": approval_id,
                 "risk_rule": rule,
                 "error_message": f"操作命中高风险规则「{rule}」,已创建审批 {approval_id},需机器所有者批准后才会执行。",
             }
-        task = await dispatch_and_wait(app, machine.id, name, args)
+        await _emit(app, session_id, {"type": "tool_call", "tool": name, "arguments": args})
+        task = await dispatch_and_wait(app, machine.id, name, args, session_id=session_id)
         if task.status == "completed":
             return task.result or {}
         return {
@@ -218,9 +239,17 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
                 )
             )
             await s.commit()
+        # 实时推送 assistant 消息(含文字与 tool_calls);tool 角色由 tool_result 事件覆盖
+        if msg["role"] == "assistant":
+            await _emit(app, session_id, {
+                "type": "assistant",
+                "content": msg.get("content") or "",
+                "tool_calls": msg.get("tool_calls"),
+            })
 
     async def on_tool_call(name: str, args: dict, result: dict) -> None:
         status = "failed" if isinstance(result, dict) and result.get("error_code") else "completed"
+        await _emit(app, session_id, {"type": "tool_result", "tool": name, "status": status})
         async with sessionmaker() as s:
             s.add(
                 ToolCall(
@@ -235,12 +264,15 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
             )
             await s.commit()
 
+    await _emit(app, session_id, {"type": "turn_started"})
     try:
         result = await run_agent_turn(
             messages, chat_fn, executor, on_message=on_message, on_tool_call=on_tool_call
         )
     except ModelError as exc:
+        await _emit(app, session_id, {"type": "turn_error", "code": exc.code, "message": exc.message})
         raise HTTPException(503, {"code": exc.code, "message": exc.message})
+    await _emit(app, session_id, {"type": "turn_done", "reply": result["content"], "stopped": result["stopped"]})
 
     # 记录本轮模型用量(支撑按用户/订阅的审计与配额观察)
     if usage_acc["total"] or usage_acc["prompt"]:

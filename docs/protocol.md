@@ -208,4 +208,26 @@ GET  /api/tasks?machine_id=&limit=50    → 任务列表(倒序)
 
 错误响应统一:`{"error": {"code": "...", "message": "..."}}`,HTTP 状态码语义化(401/403/404/409/422)。
 
-计划中(M3–M4,未冻结):`/api/sessions`、`/api/sessions/{id}/messages`、`GET /ws/client`(浏览器实时通道:任务状态变更、流式输出、模型流式回复)。
+### 实时通道 /ws/client(浏览器/桌面端)
+
+浏览器用 httpOnly cookie 鉴权、JS 读不到 token,故先换票据再开 WS:
+
+```text
+POST /api/ws-ticket                  → {ticket}   (认证后获取,30s 一次性)
+WS   /ws/client?ticket=<ticket>      连接后发 {type:"subscribe", session_id} → 回 {type:"subscribed"}
+```
+
+订阅后实时收到该会话的事件(本期为**事件流**,token 级流式为后续增强):
+
+| event type | 字段 | 含义 |
+|---|---|---|
+| `turn_started` | — | 一轮开始 |
+| `assistant` | content, tool_calls | 模型一条消息(文字或发起工具调用) |
+| `tool_call` | tool, arguments | 即将执行某工具 |
+| `tool_output` | task_id, stream, data | **命令实时 stdout/stderr 分块**(边产出边推) |
+| `tool_result` | tool, status | 工具执行结束 |
+| `approval_required` | approval_id, risk_rule | 高危被拦,转审批 |
+| `turn_done` | reply, stopped | 一轮结束(reply 为最终回复) |
+| `turn_error` | code, message | 模型错误 |
+
+同步的 `POST /api/sessions/{id}/messages` 仍照常返回最终结果,流式只是额外的实时增强(向后兼容)。

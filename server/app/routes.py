@@ -160,6 +160,13 @@ async def whoami(user: User = Depends(require_user)) -> dict:
     return _user_out(user)
 
 
+@router.post("/api/ws-ticket")
+async def ws_ticket(request: Request, principal: Principal = Depends(require_principal)) -> dict:
+    """换取一次性短时票据,用于打开 /ws/client 实时通道(浏览器 cookie 鉴权的桥接)。"""
+    ticket = request.app.state.tickets.issue(principal.user_id or "default")
+    return {"ticket": ticket}
+
+
 @router.post("/api/users")
 async def create_user(body: UserCreateIn, request: Request, _admin: User = Depends(require_admin)) -> dict:
     async with request.app.state.sessionmaker() as session:

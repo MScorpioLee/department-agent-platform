@@ -125,9 +125,22 @@ async def runner_ws(ws: WebSocket) -> None:
                     await session.commit()
 
             elif ftype == "task_output":
-                buf = hub.buffer(frame.get("task_id"))
+                task_id = frame.get("task_id")
+                buf = hub.buffer(task_id)
                 if buf is not None:
                     buf.add(frame.get("stream", "stdout"), int(frame.get("seq", 0)), str(frame.get("data", "")))
+                # 实时转发到该任务所属会话的订阅者(若有)
+                sid = app.state.task_sessions.get(task_id)
+                if sid:
+                    await app.state.events.publish(
+                        sid,
+                        {
+                            "type": "tool_output",
+                            "task_id": task_id,
+                            "stream": frame.get("stream", "stdout"),
+                            "data": str(frame.get("data", "")),
+                        },
+                    )
 
             elif ftype == "task_result":
                 task_id = frame.get("task_id")

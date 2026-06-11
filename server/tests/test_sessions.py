@@ -44,7 +44,7 @@ class FakeGateway:
 
 
 def install_fake_dispatch(monkeypatch, result):
-    async def fake_dispatch(app, machine_id, tool, payload):
+    async def fake_dispatch(app, machine_id, tool, payload, session_id=None):
         return SimpleNamespace(status="completed", result=result)
 
     monkeypatch.setattr(services, "dispatch_and_wait", fake_dispatch)

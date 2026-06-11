@@ -9,10 +9,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from . import audit, routes, ws
+from . import audit, client_ws, routes, ws
 from .auth import hash_password
 from .config import Settings
 from .db import Base
+from .events import EventBus, TicketStore
 from .model_gateway import build_gateway
 from .models import ACTIVE_TASK_STATUSES, Machine, Task, User, new_id, utcnow
 from .registry import RunnerHub
@@ -94,9 +95,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = sessionmaker
     app.state.hub = RunnerHub(settings.output_cap_bytes)
     app.state.gateway = build_gateway(_load_models_config(settings.models_config_path))
+    app.state.events = EventBus()
+    app.state.tickets = TicketStore()
+    app.state.task_sessions = {}  # task_id → session_id,供实时输出路由
     app.include_router(routes.router)
     app.include_router(audit.router)
     app.include_router(ws.router)
+    app.include_router(client_ws.router)
 
     @app.exception_handler(HTTPException)
     async def _http_exc(request: Request, exc: HTTPException) -> JSONResponse:

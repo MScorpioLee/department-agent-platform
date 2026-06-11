@@ -116,7 +116,7 @@ def test_audit_commands_redacted(client, monkeypatch):
     }
     client.app.state.gateway = FakeGateway([_assistant(tool_calls=[tool_call]), _assistant(content="完成")])
 
-    async def fake_dispatch(app, machine_id, tool, payload):
+    async def fake_dispatch(app, machine_id, tool, payload, session_id=None):
         return SimpleNamespace(status="completed", result={"exit_code": 0, "stdout_tail": "ok"})
 
     monkeypatch.setattr(services, "dispatch_and_wait", fake_dispatch)

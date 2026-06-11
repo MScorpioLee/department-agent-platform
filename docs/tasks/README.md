@@ -24,6 +24,7 @@
 | [T-DESK-02](T-DESK-02-hardening.md) | 桌面端加固:限制性 CSP + 收窄 http 权限 | T-DESK-01 | ✅ 已完成 |
 | [T-PKG-01](T-PKG-01-runner-binary.md) | Runner 打单文件可执行(纯打包,不改逻辑) | — | 🟢 可交 Codex |
 | [T-DEPLOY-01](T-DEPLOY-01-compose.md) | 生产编排 Docker Compose(只新增 deploy/) | — | 🟢 可交 Codex |
+| [T-WEB-07](T-WEB-07-streaming.md) | 对话实时流(消费 /ws/client 事件) | T-WEB-04 | 🟢 可交 Codex(后端就绪) |
 
 > 注:T-PKG-01 / T-DEPLOY-01 是**受控例外**——纯打包/运维,带硬护栏(不改安全逻辑/不动应用源码)。
 > 协议版本校验、Alembic 迁移、流式输出仍属 server/runner 应用层,由 Claude 完成。
