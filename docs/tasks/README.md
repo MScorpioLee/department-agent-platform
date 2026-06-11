@@ -14,14 +14,16 @@
 
 | 卡 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| [T-WEB-01](T-WEB-01-webui-console.md) | 机器列表 + 任务控制台 | — | ✅ 已完成(Claude review 通过) |
-| [T-WEB-02](T-WEB-02-login.md) | 登录 + token(httpOnly cookie)+ 代理改用用户 token | T-WEB-01 | 待做 |
-| [T-WEB-03](T-WEB-03-audit.md) | 管理员审计后台(用量/会话/命令) | T-WEB-02 | 待做 |
-| [T-WEB-04](T-WEB-04-chat.md) | 对话界面(模型驱动远程工具) | T-WEB-02 | 待做 |
-| [T-WEB-05](T-WEB-05-approvals-grants.md) | 审批收件箱 + 跨机器授权 UI | T-WEB-02 | 待做 |
-| [T-DESK-01](T-DESK-01-desktop-client.md) | Tauri 2 桌面客户端(原生直连 + keychain) | T-WEB-02 + M4(已就绪) | 可开工 |
+| [T-WEB-01](T-WEB-01-webui-console.md) | 机器列表 + 任务控制台 | — | ✅ 已完成(review 通过) |
+| [T-WEB-02](T-WEB-02-login.md) | 登录 + token(httpOnly cookie)+ 代理改用用户 token | T-WEB-01 | ✅ 已完成 |
+| [T-WEB-03](T-WEB-03-audit.md) | 管理员审计后台(用量/会话/命令) | T-WEB-02 | ✅ 已完成 |
+| [T-WEB-04](T-WEB-04-chat.md) | 对话界面(模型驱动远程工具) | T-WEB-02 | ✅ 已完成 |
+| [T-WEB-05](T-WEB-05-approvals-grants.md) | 审批收件箱 + 跨机器授权 UI | T-WEB-02 | ✅ 已完成 |
+| [T-DESK-01](T-DESK-01-desktop-client.md) | Tauri 2 桌面客户端(原生直连 + keychain) | T-WEB-02 + M4 | ✅ 已完成(review 通过) |
+| [T-WEB-06](T-WEB-06-admin-onboarding.md) | 管理控制台:用户/Enrollment 上线引导/机器归属/取消任务 | T-WEB-02 | 🔴 待做(真实可用关键) |
+| [T-DESK-02](T-DESK-02-hardening.md) | 桌面端加固:限制性 CSP + 收窄 http 权限 | T-DESK-01 | 🟡 待做 |
 
-建议顺序:**02 → 03 / 04 / 05 可并行 → DESK-01**。
+下一批建议:**T-WEB-06 优先**(管理员才能把人/机器拉进平台);T-DESK-02 可并行。
 
 ## 本地起后端(供前端联调)
 
