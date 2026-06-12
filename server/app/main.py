@@ -105,7 +105,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.sessionmaker = sessionmaker
     app.state.hub = RunnerHub(settings.output_cap_bytes)
     app.state.gateway = ModelGateway([])  # 占位;lifespan 中从 DB 构建
-    app.state.connectors = ConnectorManager()
+    app.state.connectors = ConnectorManager(
+        connect_timeout=settings.connector_connect_timeout_seconds,
+        call_timeout=settings.connector_call_timeout_seconds,
+        output_cap=settings.output_cap_bytes,
+    )
     app.state.events = EventBus()
     app.state.tickets = TicketStore()
     app.state.task_sessions = {}  # task_id → session_id,供实时输出路由

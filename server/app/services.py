@@ -137,6 +137,22 @@ def _make_executor(app, machine: Machine, session_id: str, user_id: str, is_admi
         if connectors.has_tool(name):
             if not connectors.can_use(name, user_id, is_admin):
                 return {"error_code": "forbidden", "error_message": f"无权使用连接器工具 {name}"}
+            # 管理员可把连接器标记为"每次调用需审批"(如可写外部系统的连接器)
+            if connectors.requires_approval(name):
+                approval_id = await create_approval(
+                    app, machine.id, session_id, user_id, name, args, "connector_requires_approval"
+                )
+                await _emit(app, session_id, {
+                    "type": "approval_required", "tool": name,
+                    "approval_id": approval_id, "risk_rule": "connector_requires_approval",
+                })
+                return {
+                    "needs_approval": True,
+                    "approval_id": approval_id,
+                    "risk_rule": "connector_requires_approval",
+                    "error_message": f"连接器工具 {name} 配置为需审批,已创建审批 {approval_id},批准后才会执行。",
+                }
+            await _emit(app, session_id, {"type": "tool_call", "tool": name, "arguments": args})
             return await connectors.call(name, args)
         # 门控按机器上报的能力(动态);未上报能力时放行,由 Runner 注册表兜底
         if caps and name not in caps:

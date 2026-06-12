@@ -83,6 +83,7 @@ class ConnectorIn(BaseModel):
     url: str | None = None
     env: dict[str, str] = Field(default_factory=dict)
     scope_all: bool = False
+    require_approval: bool = False
 
 
 class ConnectorPatch(BaseModel):
@@ -93,6 +94,7 @@ class ConnectorPatch(BaseModel):
     env: dict[str, str] | None = None
     enabled: bool | None = None
     scope_all: bool | None = None
+    require_approval: bool | None = None
 
 
 class ConnectorScopeIn(BaseModel):

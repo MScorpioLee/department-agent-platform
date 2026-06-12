@@ -40,6 +40,7 @@ def _out(row: Connector, secret_key: str, manager, scopes: list[str]) -> dict:
         "env_keys": sorted(env.keys()),  # 只回 key 名,不回值
         "enabled": row.enabled,
         "scope_all": row.scope_all,
+        "require_approval": row.require_approval,
         "scopes": scopes,
         "status": manager.status.get(row.id, "disabled" if not row.enabled else "unknown"),
         "tool_count": tool_count,
@@ -83,6 +84,7 @@ async def create_connector(body: ConnectorIn, request: Request) -> dict:
             url=body.url,
             env_enc=encrypt(json.dumps(body.env), sk) if body.env else None,
             scope_all=body.scope_all,
+            require_approval=body.require_approval,
         )
         session.add(row)
         await session.commit()
@@ -114,6 +116,8 @@ async def update_connector(connector_id: str, body: ConnectorPatch, request: Req
             row.enabled = body.enabled
         if body.scope_all is not None:
             row.scope_all = body.scope_all
+        if body.require_approval is not None:
+            row.require_approval = body.require_approval
         await session.commit()
     await _reload(request)
     async with request.app.state.sessionmaker() as session:

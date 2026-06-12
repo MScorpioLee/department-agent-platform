@@ -25,6 +25,7 @@ from .models import (
     Message,
     Session,
     Task,
+    ToolCall,
     User,
     new_id,
     utcnow,
@@ -440,6 +441,27 @@ async def approve(approval_id: str, request: Request, principal: Principal = Dep
         ap.decided_at = utcnow()
         await session.commit()
         tool, payload, machine_id = ap.tool, ap.payload, ap.machine_id
+        ap_session_id = ap.session_id
+
+    # 连接器(MCP)工具:批准后在服务端执行,不下发机器;结果落 ToolCall 审计
+    if tool.startswith("mcp__"):
+        result = await request.app.state.connectors.call(tool, payload or {})
+        status = "failed" if isinstance(result, dict) and result.get("error_code") else "completed"
+        if ap_session_id:  # 连接器审批均来自会话;落 ToolCall 审计
+            async with request.app.state.sessionmaker() as session:
+                session.add(
+                    ToolCall(
+                        id=new_id("tc"),
+                        session_id=ap_session_id,
+                        machine_id=machine_id,
+                        tool_name=tool,
+                        arguments_json=payload,
+                        result_json=result,
+                        status=status,
+                    )
+                )
+                await session.commit()
+        return {"approval_id": approval_id, "status": "approved", "result": result, "tool_status": status}
 
     if not request.app.state.hub.is_online(machine_id):
         raise HTTPException(409, {"code": "machine_offline", "message": "机器不在线,已批准但暂无法执行"})

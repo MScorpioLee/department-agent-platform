@@ -154,6 +154,7 @@ class Connector(Base):
     env_enc: Mapped[str | None] = mapped_column(Text)  # 加密:子进程注入的环境变量(JSON)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     scope_all: Mapped[bool] = mapped_column(Boolean, default=False)  # True=所有用户可用
+    require_approval: Mapped[bool] = mapped_column(Boolean, default=False)  # 每次调用需审批
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

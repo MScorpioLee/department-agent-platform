@@ -8,6 +8,7 @@
 - 完整 OS 级沙箱(独立低权限账号/容器)属部署层,见 docs/management.md;本模块做应用层隔离。
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -31,6 +32,7 @@ class _Config:
     env: dict
     scope_all: bool
     scopes: set = field(default_factory=set)
+    require_approval: bool = False
 
 
 @dataclass
@@ -69,26 +71,43 @@ async def _open_session(cfg: _Config):
                 yield session
 
 
-def _extract(result) -> dict:
+def _extract(result, output_cap: int) -> dict:
     parts = []
     for block in getattr(result, "content", []) or []:
         text = getattr(block, "text", None)
         if text is not None:
             parts.append(text)
-    out = {"content": "\n".join(parts)}
+    content = "\n".join(parts)
+    out = {"content": content}
+    if len(content.encode("utf-8", errors="ignore")) > output_cap:
+        out["content"] = content.encode("utf-8", errors="ignore")[:output_cap].decode("utf-8", errors="ignore")
+        out["truncated"] = True
     if getattr(result, "isError", False):
         out["error_code"] = "mcp_tool_error"
     return out
 
 
 class ConnectorManager:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        connect_timeout: float = 20.0,
+        call_timeout: float = 60.0,
+        output_cap: int = 1024 * 1024,
+    ) -> None:
         self.configs: dict[str, _Config] = {}  # connector_id -> 配置快照
         self.tools: dict[str, _ToolInfo] = {}  # namespaced -> ToolInfo
         self.status: dict[str, str] = {}  # connector_id -> connected | error:...
+        self.connect_timeout = connect_timeout
+        self.call_timeout = call_timeout
+        self.output_cap = output_cap
 
     def has_tool(self, name: str) -> bool:
         return name in self.tools
+
+    def requires_approval(self, name: str) -> bool:
+        info = self.tools.get(name)
+        cfg = self.configs.get(info.connector_id) if info else None
+        return bool(cfg and cfg.require_approval)
 
     def tools_for(self, user_id: str | None, is_admin: bool) -> list[dict]:
         """返回该用户有权使用的连接器工具的 OpenAI spec。"""
@@ -122,11 +141,16 @@ class ConnectorManager:
         status: dict[str, str] = {}
         for row in rows:
             env = json.loads(decrypt(row.env_enc, secret_key) or "{}") if row.env_enc else {}
-            cfg = _Config(row.transport, row.command, row.args or [], row.url, env, row.scope_all, scopes.get(row.id, set()))
+            cfg = _Config(
+                row.transport, row.command, row.args or [], row.url, env,
+                row.scope_all, scopes.get(row.id, set()),
+                require_approval=getattr(row, "require_approval", False) or False,
+            )
             configs[row.id] = cfg
             try:
-                async with _open_session(cfg) as mcp:
-                    listed = await mcp.list_tools()
+                async with asyncio.timeout(self.connect_timeout):
+                    async with _open_session(cfg) as mcp:
+                        listed = await mcp.list_tools()
                 for t in listed.tools:
                     ns = f"mcp__{row.name}__{t.name}"
                     tools[ns] = _ToolInfo(
@@ -149,9 +173,22 @@ class ConnectorManager:
         cfg = self.configs.get(info.connector_id)
         if cfg is None:
             return {"error_code": "connector_unavailable", "error_message": "连接器不可用"}
+        timeout_result = {
+            "error_code": "connector_timeout",
+            "error_message": f"连接器调用超时(>{self.call_timeout}s)",
+        }
         try:
-            async with _open_session(cfg) as mcp:
-                result = await mcp.call_tool(info.real_name, arguments or {})
-            return _extract(result)
+            async with asyncio.timeout(self.connect_timeout + self.call_timeout):
+                async with _open_session(cfg) as mcp:
+                    # 超时须在会话上下文内捕获:穿出 anyio 上下文会被包装成 ExceptionGroup
+                    try:
+                        result = await asyncio.wait_for(
+                            mcp.call_tool(info.real_name, arguments or {}), self.call_timeout
+                        )
+                    except (TimeoutError, asyncio.TimeoutError):
+                        return timeout_result
+            return _extract(result, self.output_cap)
+        except (TimeoutError, asyncio.TimeoutError):
+            return timeout_result
         except Exception as exc:
             return {"error_code": "connector_call_failed", "error_message": repr(exc)}

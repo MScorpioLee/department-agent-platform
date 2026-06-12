@@ -66,7 +66,11 @@ async def cmd_approvals(args) -> None:
 
 async def cmd_approve(args) -> None:
     r = await _client().approve(args.approval_id)
-    print(f"✓ 已批准,任务 {r.get('task_id')} ({r.get('task_status')})")
+    if "result" in r:  # 连接器(MCP)审批:服务端已执行,直接给结果摘要
+        content = str((r.get("result") or {}).get("content", ""))
+        print(f"✓ 已批准并执行 ({r.get('tool_status')}): {_short(content)}")
+    else:
+        print(f"✓ 已批准,任务 {r.get('task_id')} ({r.get('task_status')})")
 
 
 async def cmd_reject(args) -> None:

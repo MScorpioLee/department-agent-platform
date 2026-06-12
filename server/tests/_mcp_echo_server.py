@@ -10,5 +10,14 @@ def echo(text: str) -> str:
     return f"echo: {text}"
 
 
+@mcp.tool()
+def slow(seconds: float) -> str:
+    """睡 seconds 秒后返回(测试调用超时用)。"""
+    import time
+
+    time.sleep(seconds)
+    return "done"
+
+
 if __name__ == "__main__":
     mcp.run()
