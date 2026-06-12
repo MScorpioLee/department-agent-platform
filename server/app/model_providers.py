@@ -53,8 +53,10 @@ PRESET_PROVIDERS = [
      "models": ["local-model"], "needs_key": False, "note": "本机 LM Studio,model 名以其加载的为准"},
     {"id": "ollama", "name": "Ollama (本地)", "base_url": "http://127.0.0.1:11434/v1",
      "models": ["qwen2.5", "llama3.1"], "needs_key": False, "note": "本机 Ollama 的 OpenAI 兼容端点"},
-    {"id": "hermes_proxy", "name": "Hermes / Codex 代理 (OAuth)", "base_url": "http://127.0.0.1:11500/v1",
-     "models": ["gpt-5.1-codex"], "needs_key": False, "note": "开发期把订阅暴露为 OpenAI 兼容端点,非生产基础设施"},
+    {"id": "external_runtime", "name": "外部运行时代理 (Codex/OpenClaw/Hermes)", "base_url": "http://127.0.0.1:11500/v1",
+     "models": ["gpt-5.1-codex", "claude-sonnet-4-6"], "needs_key": False,
+     "note": "用 Claude/Codex 订阅的正路:本机跑 codex/openclaw 处理订阅 OAuth(运行时层),"
+             "平台把它当 OpenAI 兼容 Provider 指过来。订阅 OAuth 不进本平台,避免 ToS 风险。地址按你的代理实际端口改"},
     {"id": "anthropic", "name": "Anthropic / Claude (需代理)", "base_url": "",
      "models": ["claude-sonnet-4-6", "claude-opus-4-8"], "needs_key": True,
      "note": "Anthropic 原生非 /chat/completions;需经 LiteLLM 或兼容代理,base_url 填代理地址"},

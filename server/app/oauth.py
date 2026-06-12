@@ -2,7 +2,7 @@
 
 只实现**标准、厂商无关**的 OAuth——管理员填该厂商发的 client_id/endpoints,平台跑流程。
 刻意不内置任何第一方(Claude Code/Codex CLI)的 client_id;那种"用订阅冒充官方客户端"
-违反厂商 ToS,不进本代码库(用法见 docs/management.md:订阅走外部代理 + hermes_proxy 预设)。
+违反厂商 ToS,不进本代码库(用法见 docs/management.md:订阅走外部运行时代理 external_runtime 预设)。
 
 httpx 调用经 client_factory 注入,便于用假端点完整测试,不依赖真实 IdP。
 """

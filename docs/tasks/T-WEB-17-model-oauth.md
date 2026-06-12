@@ -63,4 +63,4 @@ device/poll 第一次 `pending`、第二次 `authorized`;refresh 返回 `refresh
 ## 5. 明确不做(也不允许)
 
 **不内置任何第一方(Claude/Codex/OpenAI)的 client_id 去冒充官方客户端**(违反厂商 ToS)。
-本页只做标准 OAuth——凭据由管理员从厂商处获得后填入。订阅类走外部代理 + hermes_proxy 预设。
+本页只做标准 OAuth——凭据由管理员从厂商处获得后填入。订阅类走外部运行时代理(external_runtime 预设)。
