@@ -17,7 +17,11 @@ import type {
   CreateConnectorRequest,
   CreateSkillRequest,
   CreateModelBackendRequest,
+  CreatePersonalApiKeyRequest,
+  CreatePersonalApiKeyResponse,
   CreateUserRequest,
+  DiscoverModelProviderRequest,
+  DiscoverModelProviderResponse,
   EnrollmentTokenResponse,
   CreateGrantRequest,
   ImportSkillRequest,
@@ -27,7 +31,15 @@ import type {
   CreateTaskResponse,
   Machine,
   MachineGrant,
+  MyModelLogin,
   ModelBackend,
+  OAuthAuthorizeUrlResponse,
+  OAuthCallbackRequest,
+  OAuthCallbackResponse,
+  OAuthDeviceStartResponse,
+  OAuthPollResponse,
+  OAuthRefreshResponse,
+  PersonalApiKey,
   ModelProvider,
   ModelRoute,
   RejectApprovalResponse,
@@ -342,6 +354,15 @@ export function listModelProviders(): Promise<ModelProvider[]> {
   return apiFetch<ModelProvider[]>("/admin/model-providers");
 }
 
+export function discoverModelProvider(
+  request: DiscoverModelProviderRequest
+): Promise<DiscoverModelProviderResponse> {
+  return apiFetch<DiscoverModelProviderResponse>("/admin/model-providers/discover", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
 export function createModelBackend(request: CreateModelBackendRequest): Promise<ModelBackend> {
   return apiFetch<ModelBackend>("/admin/models", {
     method: "POST",
@@ -373,6 +394,89 @@ export function putModelRoute(userId: string, backendId: string | null): Promise
   return apiFetch<ModelRoute>("/admin/model-routes", {
     method: "PUT",
     body: JSON.stringify({ user_id: userId, backend_id: backendId })
+  });
+}
+
+export function startModelOAuthDevice(backendId: string): Promise<OAuthDeviceStartResponse> {
+  return apiFetch<OAuthDeviceStartResponse>(
+    `/admin/models/${encodeURIComponent(backendId)}/oauth/device/start`,
+    { method: "POST" }
+  );
+}
+
+export function pollModelOAuthDevice(backendId: string): Promise<OAuthPollResponse> {
+  return apiFetch<OAuthPollResponse>(
+    `/admin/models/${encodeURIComponent(backendId)}/oauth/device/poll`,
+    { method: "POST" }
+  );
+}
+
+export function getModelOAuthAuthorizeUrl(backendId: string): Promise<OAuthAuthorizeUrlResponse> {
+  return apiFetch<OAuthAuthorizeUrlResponse>(
+    `/admin/models/${encodeURIComponent(backendId)}/oauth/authorize-url`
+  );
+}
+
+export function submitModelOAuthCallback(
+  backendId: string,
+  request: OAuthCallbackRequest
+): Promise<OAuthCallbackResponse> {
+  return apiFetch<OAuthCallbackResponse>(
+    `/admin/models/${encodeURIComponent(backendId)}/oauth/callback`,
+    {
+      method: "POST",
+      body: JSON.stringify(request)
+    }
+  );
+}
+
+export function refreshModelOAuth(backendId: string): Promise<OAuthRefreshResponse> {
+  return apiFetch<OAuthRefreshResponse>(
+    `/admin/models/${encodeURIComponent(backendId)}/oauth/refresh`,
+    { method: "POST" }
+  );
+}
+
+export function listPersonalApiKeys(): Promise<PersonalApiKey[]> {
+  return apiFetch<PersonalApiKey[]>("/me/api-keys");
+}
+
+export function createPersonalApiKey(
+  request: CreatePersonalApiKeyRequest
+): Promise<CreatePersonalApiKeyResponse> {
+  return apiFetch<CreatePersonalApiKeyResponse>("/me/api-keys", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function deletePersonalApiKey(keyId: string): Promise<{ deleted: boolean }> {
+  return apiFetch<{ deleted: boolean }>(`/me/api-keys/${encodeURIComponent(keyId)}`, {
+    method: "DELETE"
+  });
+}
+
+export function listMyModelLogins(): Promise<MyModelLogin[]> {
+  return apiFetch<MyModelLogin[]>("/me/model-logins");
+}
+
+export function startMyModelLoginDevice(backendId: string): Promise<OAuthDeviceStartResponse> {
+  return apiFetch<OAuthDeviceStartResponse>(
+    `/me/model-logins/${encodeURIComponent(backendId)}/device/start`,
+    { method: "POST" }
+  );
+}
+
+export function pollMyModelLoginDevice(backendId: string): Promise<OAuthPollResponse> {
+  return apiFetch<OAuthPollResponse>(
+    `/me/model-logins/${encodeURIComponent(backendId)}/device/poll`,
+    { method: "POST" }
+  );
+}
+
+export function deleteMyModelLogin(backendId: string): Promise<{ logged_out: boolean }> {
+  return apiFetch<{ logged_out: boolean }>(`/me/model-logins/${encodeURIComponent(backendId)}`, {
+    method: "DELETE"
   });
 }
 

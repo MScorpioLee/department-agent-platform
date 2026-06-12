@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   createModelBackend: vi.fn(),
   deleteConnector: vi.fn(),
   deleteModelBackend: vi.fn(),
+  discoverModelProvider: vi.fn(),
+  getModelOAuthAuthorizeUrl: vi.fn(),
   getMe: vi.fn(),
   listConnectorPresets: vi.fn(),
   listConnectorRegistry: vi.fn(),
@@ -18,8 +20,12 @@ const mocks = vi.hoisted(() => ({
   listModelProviders: vi.fn(),
   listModelRoutes: vi.fn(),
   listUsers: vi.fn(),
+  pollModelOAuthDevice: vi.fn(),
   putConnectorScope: vi.fn(),
   putModelRoute: vi.fn(),
+  refreshModelOAuth: vi.fn(),
+  startModelOAuthDevice: vi.fn(),
+  submitModelOAuthCallback: vi.fn(),
   updateConnector: vi.fn(),
   updateModelBackend: vi.fn()
 }));
@@ -29,6 +35,8 @@ vi.mock("@/lib/api-client", () => ({
   createModelBackend: mocks.createModelBackend,
   deleteConnector: mocks.deleteConnector,
   deleteModelBackend: mocks.deleteModelBackend,
+  discoverModelProvider: mocks.discoverModelProvider,
+  getModelOAuthAuthorizeUrl: mocks.getModelOAuthAuthorizeUrl,
   getMe: mocks.getMe,
   listConnectorPresets: mocks.listConnectorPresets,
   listConnectorRegistry: mocks.listConnectorRegistry,
@@ -37,8 +45,12 @@ vi.mock("@/lib/api-client", () => ({
   listModelProviders: mocks.listModelProviders,
   listModelRoutes: mocks.listModelRoutes,
   listUsers: mocks.listUsers,
+  pollModelOAuthDevice: mocks.pollModelOAuthDevice,
   putConnectorScope: mocks.putConnectorScope,
   putModelRoute: mocks.putModelRoute,
+  refreshModelOAuth: mocks.refreshModelOAuth,
+  startModelOAuthDevice: mocks.startModelOAuthDevice,
+  submitModelOAuthCallback: mocks.submitModelOAuthCallback,
   updateConnector: mocks.updateConnector,
   updateModelBackend: mocks.updateModelBackend
 }));
@@ -46,6 +58,7 @@ vi.mock("@/lib/api-client", () => ({
 describe("admin model and connector pages", () => {
   afterEach(() => {
     vi.resetAllMocks();
+    vi.unstubAllGlobals();
   });
 
   test("admin creates, edits, defaults, and routes model backends without rendering plaintext keys", async () => {
@@ -159,6 +172,215 @@ describe("admin model and connector pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存路由" }));
 
     await waitFor(() => expect(mocks.putModelRoute).toHaveBeenCalledWith("u_alice", null));
+  });
+
+  test("admin discovers real model choices before creating a provider and can keep manual fallback", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listUsers.mockResolvedValue([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" }]);
+    mocks.listModelProviders.mockResolvedValue([
+      {
+        id: "deepseek",
+        name: "DeepSeek",
+        base_url: "https://api.deepseek.com/v1",
+        models: ["deepseek-chat"],
+        needs_key: true,
+        note: "官方 API"
+      }
+    ]);
+    mocks.listModelRoutes.mockResolvedValue([]);
+    mocks.listModelBackends.mockResolvedValue([]);
+    mocks.discoverModelProvider
+      .mockRejectedValueOnce(new Error("API Key 无效或无权限"))
+      .mockResolvedValueOnce({ models: ["mock-chat", "mock-coder"], count: 2 });
+    mocks.createModelBackend.mockResolvedValue({ id: "model_2" });
+
+    render(<ModelsPage />);
+
+    expect(await screen.findByText("模型管理")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "添加 Provider" }));
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "deepseek" } });
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "bad" } });
+    fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+
+    expect(await screen.findByText("API Key 无效或无权限")).toBeTruthy();
+    expect(screen.getByLabelText("模型")).toHaveProperty("value", "deepseek-chat");
+
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "sk-live-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+
+    expect(await screen.findByText("连接成功，共 2 个模型")).toBeTruthy();
+    expect(screen.getByLabelText("模型")).toHaveProperty("value", "mock-chat");
+    fireEvent.change(screen.getByLabelText("模型"), { target: { value: "mock-coder" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建 Provider" }));
+
+    await waitFor(() => {
+      expect(mocks.discoverModelProvider).toHaveBeenLastCalledWith({
+        base_url: "https://api.deepseek.com/v1",
+        api_key: "sk-live-secret"
+      });
+      expect(mocks.createModelBackend).toHaveBeenCalledWith({
+        name: "DeepSeek",
+        base_url: "https://api.deepseek.com/v1",
+        model: "mock-coder",
+        api_key: "sk-live-secret",
+        max_concurrency: 2,
+        is_default: false
+      });
+    });
+    expect(screen.queryByText("sk-live-secret")).toBeNull();
+  });
+
+  test("admin creates a per-user oauth Codex backend and completes device authorization", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listUsers.mockResolvedValue([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" }]);
+    mocks.listModelProviders.mockResolvedValue([
+      { id: "custom", name: "自定义", base_url: "", models: [], needs_key: true, note: "" }
+    ]);
+    mocks.listModelRoutes.mockResolvedValue([]);
+    mocks.listModelBackends
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([
+        {
+          id: "model_codex",
+          name: "Codex 订阅",
+          base_url: "https://codex.example/v1",
+          model: "codex-mini",
+          api_key: "",
+          max_concurrency: 2,
+          enabled: true,
+          is_default: false,
+          auth_type: "oauth",
+          auth_scope: "per_user",
+          runtime: "codex_responses",
+          oauth: {
+            status: "pending",
+            client_id: "client_from_admin",
+            scope: "openid profile",
+            has_device_flow: true,
+            has_auth_code_flow: false,
+            expires_at: null
+          },
+          created_at: "2026-06-12T00:00:00Z"
+        }
+      ]);
+    mocks.createModelBackend.mockResolvedValue({ id: "model_codex" });
+    mocks.startModelOAuthDevice.mockResolvedValue({
+      verification_uri: "https://login.example/device",
+      user_code: "ABCD-EFGH",
+      expires_in: 900,
+      interval: 0
+    });
+    mocks.pollModelOAuthDevice.mockResolvedValueOnce({ status: "pending" }).mockResolvedValueOnce({ status: "authorized" });
+    mocks.refreshModelOAuth.mockResolvedValue({ status: "refreshed" });
+
+    render(<ModelsPage />);
+
+    expect(await screen.findByText("模型管理")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "添加 Provider" }));
+    fireEvent.change(screen.getByLabelText("认证方式"), { target: { value: "oauth" } });
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Codex 订阅" } });
+    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://codex.example/v1" } });
+    fireEvent.change(screen.getByLabelText("模型"), { target: { value: "codex-mini" } });
+    fireEvent.change(screen.getByLabelText("client_id"), { target: { value: "client_from_admin" } });
+    fireEvent.change(screen.getByLabelText("client_secret"), { target: { value: "secret_from_admin" } });
+    fireEvent.change(screen.getByLabelText("token_url"), { target: { value: "https://login.example/token" } });
+    fireEvent.change(screen.getByLabelText("device_authorization_url"), {
+      target: { value: "https://login.example/device" }
+    });
+    fireEvent.change(screen.getByLabelText("scope"), { target: { value: "openid profile" } });
+    fireEvent.change(screen.getByLabelText("令牌归属"), { target: { value: "per_user" } });
+    fireEvent.change(screen.getByLabelText("运行时"), { target: { value: "codex_responses" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建 Provider" }));
+
+    await waitFor(() => {
+      expect(mocks.createModelBackend).toHaveBeenCalledWith({
+        name: "Codex 订阅",
+        base_url: "https://codex.example/v1",
+        model: "codex-mini",
+        auth_type: "oauth",
+        auth_scope: "per_user",
+        runtime: "codex_responses",
+        oauth: {
+          client_id: "client_from_admin",
+          client_secret: "secret_from_admin",
+          token_url: "https://login.example/token",
+          device_authorization_url: "https://login.example/device",
+          scope: "openid profile"
+        },
+        max_concurrency: 2,
+        is_default: false
+      });
+    });
+    expect(screen.queryByText("secret_from_admin")).toBeNull();
+    expect(await screen.findByText("per_user")).toBeTruthy();
+    expect(screen.getByText("codex_responses")).toBeTruthy();
+    expect(screen.getByText("待授权")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "OAuth 登录 Codex 订阅" }));
+
+    expect(await screen.findByText("ABCD-EFGH")).toBeTruthy();
+    await waitFor(() => expect(mocks.pollModelOAuthDevice).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getAllByText("已授权").length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新令牌 Codex 订阅" }));
+    await waitFor(() => expect(mocks.refreshModelOAuth).toHaveBeenCalledWith("model_codex"));
+  });
+
+  test("admin can start an oauth authorization-code flow and submit a callback code", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listUsers.mockResolvedValue([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" }]);
+    mocks.listModelProviders.mockResolvedValue([
+      { id: "custom", name: "自定义", base_url: "", models: [], needs_key: true, note: "" }
+    ]);
+    mocks.listModelRoutes.mockResolvedValue([]);
+    mocks.listModelBackends.mockResolvedValue([
+      {
+        id: "model_auth_code",
+        name: "Auth Code",
+        base_url: "https://api.example/v1",
+        model: "chat",
+        api_key: "",
+        max_concurrency: 2,
+        enabled: true,
+        is_default: false,
+        auth_type: "oauth",
+        auth_scope: "shared",
+        runtime: "openai_chat",
+        oauth: {
+          status: "pending",
+          client_id: "client_from_admin",
+          scope: "",
+          has_device_flow: false,
+          has_auth_code_flow: true,
+          expires_at: null
+        },
+        created_at: "2026-06-12T00:00:00Z"
+      }
+    ]);
+    const openMock = vi.fn();
+    vi.stubGlobal("open", openMock);
+    mocks.getModelOAuthAuthorizeUrl.mockResolvedValue({
+      authorize_url: "https://login.example/oauth?state=state_1",
+      state: "state_1"
+    });
+    mocks.submitModelOAuthCallback.mockResolvedValue({ status: "authorized" });
+
+    render(<ModelsPage />);
+
+    const authCodeLoginButton = await screen.findByRole("button", { name: "OAuth 登录 Auth Code" });
+    fireEvent.click(authCodeLoginButton);
+
+    expect(await screen.findByDisplayValue("state_1")).toBeTruthy();
+    expect(openMock).toHaveBeenCalledWith("https://login.example/oauth?state=state_1", "_blank", "noopener,noreferrer");
+    fireEvent.change(screen.getByLabelText("授权码 code"), { target: { value: "callback-code" } });
+    fireEvent.click(screen.getByRole("button", { name: "提交授权码" }));
+
+    await waitFor(() => {
+      expect(mocks.submitModelOAuthCallback).toHaveBeenCalledWith("model_auth_code", {
+        code: "callback-code",
+        state: "state_1"
+      });
+    });
   });
 
   test("admin creates connectors and scopes users without rendering env values", async () => {

@@ -28,6 +28,8 @@ import type { User } from "@/lib/types";
 const navItems = [
   { href: "/chat", label: "对话", icon: MessageSquare, section: "workspace" },
   { href: "/skills", label: "技能", icon: BookOpen, section: "workspace" },
+  { href: "/api-access", label: "API 接入", icon: KeyRound, section: "workspace" },
+  { href: "/my-models", label: "模型登录", icon: Bot, section: "workspace" },
   { href: "/approvals", label: "审批", icon: ShieldCheck, section: "workspace" },
   { href: "/machines", label: "机器", icon: Server, section: "developer" },
   { href: "/console", label: "控制台", icon: TerminalSquare, section: "developer" },

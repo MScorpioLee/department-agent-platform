@@ -305,6 +305,115 @@ describe("mock api", () => {
     expect(cleared.body).toEqual({ user_id: "u_mock_user", backend_id: null });
   });
 
+  test("supports model discovery and readable discovery failures", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-12T12:00:00Z") });
+
+    const discovered = await api.handle("POST", ["admin", "model-providers", "discover"], {
+      base_url: "https://api.deepseek.com/v1",
+      api_key: "sk-live-secret"
+    });
+    expect(discovered.body).toEqual({ models: ["mock-chat", "mock-coder"], count: 2 });
+    expect(JSON.stringify(discovered.body)).not.toContain("sk-live-secret");
+
+    const failed = await api.handle("POST", ["admin", "model-providers", "discover"], {
+      base_url: "https://api.deepseek.com/v1",
+      api_key: "bad"
+    });
+    expect(failed).toEqual({
+      status: 502,
+      body: { error: { code: "discover_failed", message: "API Key 无效或无权限" } }
+    });
+  });
+
+  test("supports oauth model backends and per-user model login mock flows without returning secrets", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-12T12:00:00Z") });
+
+    const created = await api.handle("POST", ["admin", "models"], {
+      name: "Codex 订阅",
+      base_url: "https://codex.example/v1",
+      model: "codex-mini",
+      auth_type: "oauth",
+      auth_scope: "per_user",
+      runtime: "codex_responses",
+      oauth: {
+        client_id: "client_from_admin",
+        client_secret: "secret_from_admin",
+        token_url: "https://login.example/token",
+        device_authorization_url: "https://login.example/device",
+        scope: "openid profile"
+      },
+      max_concurrency: 2,
+      is_default: false
+    });
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({
+      name: "Codex 订阅",
+      auth_type: "oauth",
+      auth_scope: "per_user",
+      runtime: "codex_responses",
+      oauth: expect.objectContaining({
+        status: "pending",
+        client_id: "client_from_admin",
+        has_device_flow: true
+      })
+    });
+    expect(JSON.stringify(created.body)).not.toContain("secret_from_admin");
+
+    const start = await api.handle("POST", ["admin", "models", created.body.id, "oauth", "device", "start"]);
+    expect(start.body).toMatchObject({ user_code: expect.any(String), verification_uri: expect.any(String) });
+    const firstPoll = await api.handle("POST", ["admin", "models", created.body.id, "oauth", "device", "poll"]);
+    const secondPoll = await api.handle("POST", ["admin", "models", created.body.id, "oauth", "device", "poll"]);
+    expect(firstPoll.body).toEqual({ status: "pending" });
+    expect(secondPoll.body).toEqual({ status: "authorized" });
+
+    const refreshed = await api.handle("POST", ["admin", "models", created.body.id, "oauth", "refresh"]);
+    expect(refreshed.body).toEqual({ status: "refreshed" });
+
+    const logins = await api.handle("GET", ["me", "model-logins"]);
+    expect(logins.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ backend_id: created.body.id, runtime: "codex_responses", logged_in: false })
+      ])
+    );
+    const loginStart = await api.handle("POST", ["me", "model-logins", created.body.id, "device", "start"]);
+    expect(loginStart.body).toMatchObject({ user_code: expect.any(String) });
+    expect((await api.handle("POST", ["me", "model-logins", created.body.id, "device", "poll"])).body).toEqual({
+      status: "pending"
+    });
+    expect((await api.handle("POST", ["me", "model-logins", created.body.id, "device", "poll"])).body).toEqual({
+      status: "authorized"
+    });
+    expect((await api.handle("GET", ["me", "model-logins"])).body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ backend_id: created.body.id, logged_in: true })])
+    );
+    expect((await api.handle("DELETE", ["me", "model-logins", created.body.id])).body).toEqual({
+      logged_out: true
+    });
+  });
+
+  test("supports personal api keys with plaintext returned only on creation", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-12T12:00:00Z") });
+
+    const initial = await api.handle("GET", ["me", "api-keys"]);
+    expect(initial.body).toEqual([
+      expect.objectContaining({ id: "ak_mock_seed", prefix: expect.stringContaining("ak_") })
+    ]);
+    expect(JSON.stringify(initial.body)).not.toContain("ak_mock_plain");
+
+    const created = await api.handle("POST", ["me", "api-keys"], { name: "local agent" });
+    expect(created.body).toMatchObject({
+      id: expect.stringMatching(/^ak_mock_/),
+      prefix: expect.stringContaining("ak_mock"),
+      api_key: expect.stringMatching(/^ak_mock_/)
+    });
+
+    const afterCreate = await api.handle("GET", ["me", "api-keys"]);
+    expect(JSON.stringify(afterCreate.body)).not.toContain(created.body.api_key);
+
+    const deleted = await api.handle("DELETE", ["me", "api-keys", created.body.id]);
+    expect(deleted.body).toEqual({ deleted: true });
+  });
+
   test("supports connector mock flows without returning env values", async () => {
     const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
 

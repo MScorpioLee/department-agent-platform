@@ -81,6 +81,30 @@ export interface WsTicketResponse {
   ticket: string;
 }
 
+export type ModelAuthType = "api_key" | "oauth";
+export type ModelAuthScope = "shared" | "per_user";
+export type ModelRuntime = "openai_chat" | "codex_responses";
+export type ModelOAuthStatus = "unconfigured" | "pending" | "authorized" | "expired";
+
+export interface ModelOAuthInfo {
+  status: ModelOAuthStatus;
+  client_id: string;
+  scope?: string;
+  has_device_flow: boolean;
+  has_auth_code_flow: boolean;
+  expires_at?: string | null;
+}
+
+export interface ModelOAuthConfigRequest {
+  client_id: string;
+  client_secret?: string;
+  token_url: string;
+  device_authorization_url?: string;
+  authorization_url?: string;
+  scope?: string;
+  redirect_uri?: string;
+}
+
 export interface ModelBackend {
   id: string;
   name: string;
@@ -90,6 +114,10 @@ export interface ModelBackend {
   max_concurrency: number;
   enabled: boolean;
   is_default: boolean;
+  auth_type?: ModelAuthType;
+  oauth?: ModelOAuthInfo | null;
+  auth_scope?: ModelAuthScope;
+  runtime?: ModelRuntime;
   created_at: string;
 }
 
@@ -97,7 +125,11 @@ export interface CreateModelBackendRequest {
   name: string;
   base_url: string;
   model: string;
-  api_key: string;
+  api_key?: string;
+  auth_type?: ModelAuthType;
+  oauth?: ModelOAuthConfigRequest;
+  auth_scope?: ModelAuthScope;
+  runtime?: ModelRuntime;
   max_concurrency: number;
   is_default: boolean;
 }
@@ -107,9 +139,80 @@ export interface UpdateModelBackendRequest {
   base_url?: string;
   model?: string;
   api_key?: string;
+  auth_type?: ModelAuthType;
+  oauth?: ModelOAuthConfigRequest;
+  auth_scope?: ModelAuthScope;
+  runtime?: ModelRuntime;
   max_concurrency?: number;
   enabled?: boolean;
   is_default?: boolean;
+}
+
+export interface DiscoverModelProviderRequest {
+  base_url: string;
+  api_key?: string;
+}
+
+export interface DiscoverModelProviderResponse {
+  models: string[];
+  count: number;
+}
+
+export interface OAuthDeviceStartResponse {
+  verification_uri: string;
+  user_code: string;
+  expires_in: number;
+  interval: number;
+}
+
+export interface OAuthPollResponse {
+  status: "pending" | "authorized";
+}
+
+export interface OAuthAuthorizeUrlResponse {
+  authorize_url: string;
+  state: string;
+}
+
+export interface OAuthCallbackRequest {
+  code: string;
+  state: string;
+}
+
+export interface OAuthCallbackResponse {
+  status: "authorized";
+}
+
+export interface OAuthRefreshResponse {
+  status: "refreshed";
+}
+
+export interface PersonalApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface CreatePersonalApiKeyRequest {
+  name?: string;
+}
+
+export interface CreatePersonalApiKeyResponse {
+  id: string;
+  name: string;
+  prefix: string;
+  api_key: string;
+}
+
+export interface MyModelLogin {
+  backend_id: string;
+  name: string;
+  model: string;
+  runtime: ModelRuntime;
+  logged_in: boolean;
+  updated_at: string | null;
 }
 
 export interface ModelRoute {

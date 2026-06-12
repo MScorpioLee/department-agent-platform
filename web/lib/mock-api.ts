@@ -9,9 +9,16 @@ import type {
   CreateTaskRequest,
   Machine,
   MachineGrant,
+  MyModelLogin,
   ModelBackend,
+  ModelAuthScope,
+  ModelAuthType,
+  ModelOAuthConfigRequest,
+  ModelOAuthInfo,
+  ModelRuntime,
   ModelProvider,
   ModelRoute,
+  PersonalApiKey,
   Skill,
   TaskOutput,
   TaskRecord,
@@ -270,6 +277,10 @@ export function createMockApi(options: MockApiOptions = {}) {
         max_concurrency: 4,
         enabled: true,
         is_default: true,
+        auth_type: "api_key",
+        oauth: null,
+        auth_scope: "shared",
+        runtime: "openai_chat",
         created_at: new Date(now()).toISOString()
       }
     ],
@@ -284,7 +295,36 @@ export function createMockApi(options: MockApiOptions = {}) {
         max_concurrency: 2,
         enabled: true,
         is_default: false,
+        auth_type: "api_key",
+        oauth: null,
+        auth_scope: "shared",
+        runtime: "openai_chat",
         created_at: new Date(now() - 60 * 1000).toISOString()
+      }
+    ],
+    [
+      "model_mock_codex_user",
+      {
+        id: "model_mock_codex_user",
+        name: "Codex 订阅",
+        base_url: "https://codex.example/v1",
+        model: "codex-mini",
+        api_key: "",
+        max_concurrency: 1,
+        enabled: true,
+        is_default: false,
+        auth_type: "oauth",
+        oauth: {
+          status: "pending",
+          client_id: "client_from_admin",
+          scope: "openid profile",
+          has_device_flow: true,
+          has_auth_code_flow: false,
+          expires_at: null
+        },
+        auth_scope: "per_user",
+        runtime: "codex_responses",
+        created_at: new Date(now() - 120 * 1000).toISOString()
       }
     ]
   ]);
@@ -292,7 +332,23 @@ export function createMockApi(options: MockApiOptions = {}) {
     ["model_mock_deepseek", "sk-mock-deepseek-cdef"],
     ["model_mock_openai", "sk-mock-openai-7890"]
   ]);
+  const modelOAuthSecrets = new Map<string, string>();
+  const modelOAuthDevicePolls = new Map<string, number>();
+  const myModelLoginPolls = new Map<string, number>();
+  const myModelLoginState = new Map<string, boolean>();
   const modelRoutes = new Map<string, string>([["u_mock_user", "model_mock_openai"]]);
+  const personalApiKeys = new Map<string, PersonalApiKey>([
+    [
+      "ak_mock_seed",
+      {
+        id: "ak_mock_seed",
+        name: "默认接入",
+        prefix: "ak_mock_seed…",
+        created_at: new Date(now() - 180 * 1000).toISOString(),
+        last_used_at: null
+      }
+    ]
+  ]);
   const modelProviders: ModelProvider[] = [
     {
       id: "deepseek",
@@ -494,6 +550,7 @@ export function createMockApi(options: MockApiOptions = {}) {
   let modelCounter = 2;
   let connectorCounter = 2;
   let skillCounter = 3;
+  let apiKeyCounter = 1;
 
   function seedApprovals() {
     if (approvals.size > 0) return;
@@ -746,6 +803,65 @@ export function createMockApi(options: MockApiOptions = {}) {
     }
   }
 
+  function optionalTrimmedString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  }
+
+  function modelAuthType(value: unknown): ModelAuthType {
+    return value === "oauth" ? "oauth" : "api_key";
+  }
+
+  function modelAuthScope(value: unknown): ModelAuthScope {
+    return value === "per_user" ? "per_user" : "shared";
+  }
+
+  function modelRuntime(value: unknown): ModelRuntime {
+    return value === "codex_responses" ? "codex_responses" : "openai_chat";
+  }
+
+  function oauthRequest(value: unknown): ModelOAuthConfigRequest | null {
+    const record = asRecord(value);
+    if (!record) return null;
+    const clientId = optionalTrimmedString(record.client_id);
+    const tokenUrl = optionalTrimmedString(record.token_url);
+    if (!clientId || !tokenUrl) return null;
+    return {
+      client_id: clientId,
+      ...(optionalTrimmedString(record.client_secret) ? { client_secret: optionalTrimmedString(record.client_secret) } : {}),
+      token_url: tokenUrl,
+      ...(optionalTrimmedString(record.device_authorization_url)
+        ? { device_authorization_url: optionalTrimmedString(record.device_authorization_url) }
+        : {}),
+      ...(optionalTrimmedString(record.authorization_url)
+        ? { authorization_url: optionalTrimmedString(record.authorization_url) }
+        : {}),
+      ...(optionalTrimmedString(record.scope) ? { scope: optionalTrimmedString(record.scope) } : {}),
+      ...(optionalTrimmedString(record.redirect_uri) ? { redirect_uri: optionalTrimmedString(record.redirect_uri) } : {})
+    };
+  }
+
+  function publicOAuthInfo(request: ModelOAuthConfigRequest): ModelOAuthInfo {
+    return {
+      status: "pending",
+      client_id: request.client_id,
+      scope: request.scope ?? "",
+      has_device_flow: Boolean(request.device_authorization_url),
+      has_auth_code_flow: Boolean(request.authorization_url),
+      expires_at: null
+    };
+  }
+
+  function discoverModels(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const baseUrl = optionalTrimmedString(request.base_url);
+    if (!baseUrl) return error(422, "validation_error", "base_url 不能为空");
+    if (optionalTrimmedString(request.api_key) === "bad") {
+      return error(502, "discover_failed", "API Key 无效或无权限");
+    }
+    return { status: 200, body: { models: ["mock-chat", "mock-coder"], count: 2 } };
+  }
+
   function createModelBackend(body: unknown): MockApiResponse {
     const request = asRecord(body);
     if (!request) return error(422, "validation_error", "请求体必须是对象");
@@ -755,10 +871,17 @@ export function createMockApi(options: MockApiOptions = {}) {
     const apiKey = typeof request.api_key === "string" ? request.api_key.trim() : "";
     const maxConcurrency = typeof request.max_concurrency === "number" ? request.max_concurrency : 1;
     const isDefault = request.is_default === true;
+    const authType = modelAuthType(request.auth_type);
+    const authScope = modelAuthScope(request.auth_scope);
+    const runtime = modelRuntime(request.runtime);
+    const oauthConfig = authType === "oauth" ? oauthRequest(request.oauth) : null;
 
     if (!name) return error(422, "validation_error", "name 不能为空");
     if (!baseUrl) return error(422, "validation_error", "base_url 不能为空");
     if (!model) return error(422, "validation_error", "model 不能为空");
+    if (authType === "oauth" && !oauthConfig) {
+      return error(422, "validation_error", "OAuth client_id/token_url 不能为空");
+    }
     if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) {
       return error(422, "validation_error", "max_concurrency 必须大于 0");
     }
@@ -769,14 +892,22 @@ export function createMockApi(options: MockApiOptions = {}) {
       name,
       base_url: baseUrl,
       model,
-      api_key: apiKey ? maskSecret(apiKey) : "",
+      api_key: authType === "oauth" ? "" : apiKey ? maskSecret(apiKey) : "",
       max_concurrency: maxConcurrency,
       enabled: request.enabled !== false,
       is_default: isDefault,
+      auth_type: authType,
+      oauth: oauthConfig ? publicOAuthInfo(oauthConfig) : null,
+      auth_scope: authScope,
+      runtime,
       created_at: new Date(now()).toISOString()
     };
     modelBackends.set(id, backend);
-    modelKeyValues.set(id, apiKey);
+    if (authType === "oauth" && oauthConfig?.client_secret) {
+      modelOAuthSecrets.set(id, oauthConfig.client_secret);
+    } else {
+      modelKeyValues.set(id, apiKey);
+    }
     if (isDefault) setOnlyDefault(id);
     return { status: 200, body: modelBackends.get(id) };
   }
@@ -793,6 +924,16 @@ export function createMockApi(options: MockApiOptions = {}) {
     if (typeof request.model === "string") next.model = request.model.trim();
     if (typeof request.max_concurrency === "number") next.max_concurrency = request.max_concurrency;
     if (typeof request.enabled === "boolean") next.enabled = request.enabled;
+    if (request.auth_type === "api_key" || request.auth_type === "oauth") next.auth_type = request.auth_type;
+    if (request.auth_scope === "shared" || request.auth_scope === "per_user") next.auth_scope = request.auth_scope;
+    if (request.runtime === "openai_chat" || request.runtime === "codex_responses") next.runtime = request.runtime;
+    if (request.auth_type === "oauth" && request.oauth) {
+      const oauthConfig = oauthRequest(request.oauth);
+      if (!oauthConfig) return error(422, "validation_error", "OAuth client_id/token_url 不能为空");
+      next.oauth = publicOAuthInfo(oauthConfig);
+      next.api_key = "";
+      if (oauthConfig.client_secret) modelOAuthSecrets.set(backendId, oauthConfig.client_secret);
+    }
     if (typeof request.api_key === "string" && request.api_key.trim()) {
       modelKeyValues.set(backendId, request.api_key.trim());
       next.api_key = maskSecret(request.api_key);
@@ -807,6 +948,10 @@ export function createMockApi(options: MockApiOptions = {}) {
     if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
     modelBackends.delete(backendId);
     modelKeyValues.delete(backendId);
+    modelOAuthSecrets.delete(backendId);
+    modelOAuthDevicePolls.delete(backendId);
+    myModelLoginPolls.delete(backendId);
+    myModelLoginState.delete(backendId);
     for (const [userId, routeBackendId] of modelRoutes.entries()) {
       if (routeBackendId === backendId) modelRoutes.delete(userId);
     }
@@ -815,6 +960,74 @@ export function createMockApi(options: MockApiOptions = {}) {
       if (first) modelBackends.set(first.id, { ...first, is_default: true });
     }
     return { status: 200, body: { deleted: true } };
+  }
+
+  function withAuthorizedOAuth(backendId: string): MockApiResponse {
+    const backend = modelBackends.get(backendId);
+    if (!backend || backend.auth_type !== "oauth" || !backend.oauth) {
+      return error(404, "not_found", "OAuth 后端不存在");
+    }
+    modelBackends.set(backendId, {
+      ...backend,
+      oauth: {
+        ...backend.oauth,
+        status: "authorized",
+        expires_at: new Date(now() + 60 * 60 * 1000).toISOString()
+      }
+    });
+    return { status: 200, body: { status: "authorized" } };
+  }
+
+  function startModelOAuthDevice(backendId: string | undefined): MockApiResponse {
+    if (!backendId) return error(404, "not_found", "模型后端不存在");
+    const backend = modelBackends.get(backendId);
+    if (!backend || backend.auth_type !== "oauth" || !backend.oauth?.has_device_flow) {
+      return error(404, "not_found", "设备码流程不可用");
+    }
+    modelOAuthDevicePolls.set(backendId, 0);
+    return {
+      status: 200,
+      body: {
+        verification_uri: "https://login.example/device",
+        user_code: "MOCK-CODE",
+        expires_in: 900,
+        interval: 0
+      }
+    };
+  }
+
+  function pollModelOAuthDevice(backendId: string | undefined): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    const count = (modelOAuthDevicePolls.get(backendId) ?? 0) + 1;
+    modelOAuthDevicePolls.set(backendId, count);
+    if (count < 2) return { status: 200, body: { status: "pending" } };
+    return withAuthorizedOAuth(backendId);
+  }
+
+  function getModelOAuthAuthorizeUrl(backendId: string | undefined): MockApiResponse {
+    if (!backendId) return error(404, "not_found", "模型后端不存在");
+    const backend = modelBackends.get(backendId);
+    if (!backend || backend.auth_type !== "oauth" || !backend.oauth?.has_auth_code_flow) {
+      return error(404, "not_found", "授权码流程不可用");
+    }
+    return {
+      status: 200,
+      body: { authorize_url: "https://login.example/oauth?state=mock_state", state: "mock_state" }
+    };
+  }
+
+  function submitModelOAuthCallback(backendId: string | undefined, body: unknown): MockApiResponse {
+    if (!backendId) return error(404, "not_found", "模型后端不存在");
+    const request = asRecord(body);
+    if (!optionalTrimmedString(request?.code) || !optionalTrimmedString(request?.state)) {
+      return error(422, "validation_error", "code/state 不能为空");
+    }
+    return withAuthorizedOAuth(backendId);
+  }
+
+  function refreshModelOAuth(backendId: string | undefined): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    return { status: 200, body: { status: "refreshed" } };
   }
 
   function putModelRoute(body: unknown): MockApiResponse {
@@ -831,6 +1044,74 @@ export function createMockApi(options: MockApiOptions = {}) {
       modelRoutes.delete(userId);
     }
     return { status: 200, body: { user_id: userId, backend_id: backendId } satisfies ModelRoute };
+  }
+
+  function listPersonalApiKeys(): MockApiResponse {
+    return { status: 200, body: Array.from(personalApiKeys.values()) };
+  }
+
+  function createPersonalApiKey(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    const name = optionalTrimmedString(request?.name) ?? "未命名 Key";
+    const id = `ak_mock_${++apiKeyCounter}`;
+    const apiKey = `${id}_plain_secret`;
+    const key: PersonalApiKey = {
+      id,
+      name,
+      prefix: `${id}…`,
+      created_at: new Date(now()).toISOString(),
+      last_used_at: null
+    };
+    personalApiKeys.set(id, key);
+    return { status: 200, body: { ...key, api_key: apiKey } };
+  }
+
+  function deletePersonalApiKey(keyId: string | undefined): MockApiResponse {
+    if (!keyId || !personalApiKeys.has(keyId)) return error(404, "not_found", "API Key 不存在");
+    personalApiKeys.delete(keyId);
+    return { status: 200, body: { deleted: true } };
+  }
+
+  function perUserModelLogins(): MyModelLogin[] {
+    return allModelBackends()
+      .filter((backend) => backend.auth_type === "oauth" && backend.auth_scope === "per_user")
+      .map((backend) => ({
+        backend_id: backend.id,
+        name: backend.name,
+        model: backend.model,
+        runtime: backend.runtime ?? "openai_chat",
+        logged_in: myModelLoginState.get(backend.id) ?? false,
+        updated_at: myModelLoginState.get(backend.id) ? new Date(now()).toISOString() : null
+      }));
+  }
+
+  function startMyModelLoginDevice(backendId: string | undefined): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    myModelLoginPolls.set(backendId, 0);
+    return {
+      status: 200,
+      body: {
+        verification_uri: "https://chatgpt.com/activate",
+        user_code: "USER-CODE",
+        expires_in: 900,
+        interval: 0
+      }
+    };
+  }
+
+  function pollMyModelLoginDevice(backendId: string | undefined): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    const count = (myModelLoginPolls.get(backendId) ?? 0) + 1;
+    myModelLoginPolls.set(backendId, count);
+    if (count < 2) return { status: 200, body: { status: "pending" } };
+    myModelLoginState.set(backendId, true);
+    return { status: 200, body: { status: "authorized" } };
+  }
+
+  function deleteMyModelLogin(backendId: string | undefined): MockApiResponse {
+    if (!backendId || !modelBackends.has(backendId)) return error(404, "not_found", "模型后端不存在");
+    myModelLoginState.set(backendId, false);
+    return { status: 200, body: { logged_out: true } };
   }
 
   function connectorStatus(enabled: boolean) {
@@ -1218,6 +1499,38 @@ export function createMockApi(options: MockApiOptions = {}) {
       return error(404, "not_found", "接口不存在");
     }
 
+    if (resource === "me") {
+      if (pathSegments[1] === "api-keys") {
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return listPersonalApiKeys();
+        }
+        if (normalizedMethod === "POST" && pathSegments.length === 2) {
+          return createPersonalApiKey(body);
+        }
+        if (normalizedMethod === "DELETE" && pathSegments.length === 3) {
+          return deletePersonalApiKey(pathSegments[2]);
+        }
+      }
+
+      if (pathSegments[1] === "model-logins") {
+        const backendId = pathSegments[2];
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return { status: 200, body: perUserModelLogins() };
+        }
+        if (normalizedMethod === "POST" && pathSegments[3] === "device" && pathSegments[4] === "start") {
+          return startMyModelLoginDevice(backendId);
+        }
+        if (normalizedMethod === "POST" && pathSegments[3] === "device" && pathSegments[4] === "poll") {
+          return pollMyModelLoginDevice(backendId);
+        }
+        if (normalizedMethod === "DELETE" && pathSegments.length === 3) {
+          return deleteMyModelLogin(backendId);
+        }
+      }
+
+      return error(404, "not_found", "接口不存在");
+    }
+
     if (resource === "admin") {
       const adminResource = pathSegments[1];
       const itemId = pathSegments[2];
@@ -1236,6 +1549,21 @@ export function createMockApi(options: MockApiOptions = {}) {
         if (normalizedMethod === "DELETE" && pathSegments.length === 3) {
           return deleteModelBackend(itemId);
         }
+        if (action === "oauth" && pathSegments[4] === "device" && pathSegments[5] === "start") {
+          return startModelOAuthDevice(itemId);
+        }
+        if (action === "oauth" && pathSegments[4] === "device" && pathSegments[5] === "poll") {
+          return pollModelOAuthDevice(itemId);
+        }
+        if (action === "oauth" && pathSegments[4] === "authorize-url" && normalizedMethod === "GET") {
+          return getModelOAuthAuthorizeUrl(itemId);
+        }
+        if (action === "oauth" && pathSegments[4] === "callback" && normalizedMethod === "POST") {
+          return submitModelOAuthCallback(itemId, body);
+        }
+        if (action === "oauth" && pathSegments[4] === "refresh" && normalizedMethod === "POST") {
+          return refreshModelOAuth(itemId);
+        }
       }
 
       if (adminResource === "model-routes") {
@@ -1250,8 +1578,13 @@ export function createMockApi(options: MockApiOptions = {}) {
         }
       }
 
-      if (adminResource === "model-providers" && normalizedMethod === "GET" && pathSegments.length === 2) {
-        return { status: 200, body: modelProviders };
+      if (adminResource === "model-providers") {
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return { status: 200, body: modelProviders };
+        }
+        if (normalizedMethod === "POST" && pathSegments[2] === "discover" && pathSegments.length === 3) {
+          return discoverModels(body);
+        }
       }
 
       if (adminResource === "connector-presets" && normalizedMethod === "GET" && pathSegments.length === 2) {

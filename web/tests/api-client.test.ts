@@ -16,21 +16,28 @@ import {
   createSkill,
   createMachineGrant,
   createModelBackend,
+  createPersonalApiKey,
   createSession,
   createUser,
   createWsTicket,
   deleteConnector,
   deleteModelBackend,
+  deleteMyModelLogin,
+  deletePersonalApiKey,
   deleteSkill,
+  discoverModelProvider,
+  getModelOAuthAuthorizeUrl,
   importSkill,
   listConnectors,
   listConnectorPresets,
   listConnectorRegistry,
   listMachines,
   listAdminSkills,
+  listMyModelLogins,
   listModelBackends,
   listModelProviders,
   listModelRoutes,
+  listPersonalApiKeys,
   listSkills,
   getSessionMessages,
   listApprovals,
@@ -45,6 +52,12 @@ import {
   revokeGrant,
   sendSessionMessage,
   setSkillEnabled,
+  startModelOAuthDevice,
+  startMyModelLoginDevice,
+  pollModelOAuthDevice,
+  pollMyModelLoginDevice,
+  refreshModelOAuth,
+  submitModelOAuthCallback,
   updateConnector,
   updateModelBackend,
   updateSkill
@@ -260,6 +273,126 @@ describe("api-client", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/admin/model-providers", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/proxy/admin/connector-presets", expect.any(Object));
+  });
+
+  test("discovers model provider models without putting keys in headers", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ models: ["mock-chat", "mock-coder"], count: 2 }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      discoverModelProvider({ base_url: "https://api.deepseek.com/v1", api_key: "sk-live-secret" })
+    ).resolves.toEqual({ models: ["mock-chat", "mock-coder"], count: 2 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/proxy/admin/model-providers/discover",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ base_url: "https://api.deepseek.com/v1", api_key: "sk-live-secret" }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+  });
+
+  test("uses personal api key endpoints through the proxy", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([{ id: "ak_1", name: "ci", prefix: "ak_3f9c1b2…", created_at: "2026-06-12T00:00:00Z", last_used_at: null }]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ id: "ak_2", name: "local", prefix: "ak_mock…", api_key: "ak_mock_plain" }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ deleted: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listPersonalApiKeys()).resolves.toHaveLength(1);
+    await expect(createPersonalApiKey({ name: "local" })).resolves.toMatchObject({ api_key: "ak_mock_plain" });
+    await expect(deletePersonalApiKey("ak_1")).resolves.toEqual({ deleted: true });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/me/api-keys", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/me/api-keys",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ name: "local" }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/proxy/me/api-keys/ak_1",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  test("uses model oauth and per-user login endpoints through the proxy", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ verification_uri: "https://login.example/device", user_code: "ABCD-EFGH", expires_in: 900, interval: 0 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "authorized" }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ authorize_url: "https://login.example/oauth", state: "state_1" }), { status: 200 })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "authorized" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "refreshed" }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ backend_id: "model_codex", name: "Codex 订阅", model: "codex", runtime: "codex_responses", logged_in: false, updated_at: null }]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ verification_uri: "https://chatgpt.com/activate", user_code: "USER-CODE", expires_in: 900, interval: 0 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "authorized" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ logged_out: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startModelOAuthDevice("model_1")).resolves.toMatchObject({ user_code: "ABCD-EFGH" });
+    await expect(pollModelOAuthDevice("model_1")).resolves.toEqual({ status: "authorized" });
+    await expect(getModelOAuthAuthorizeUrl("model_1")).resolves.toMatchObject({ state: "state_1" });
+    await expect(submitModelOAuthCallback("model_1", { code: "code_1", state: "state_1" })).resolves.toEqual({ status: "authorized" });
+    await expect(refreshModelOAuth("model_1")).resolves.toEqual({ status: "refreshed" });
+    await expect(listMyModelLogins()).resolves.toHaveLength(1);
+    await expect(startMyModelLoginDevice("model_codex")).resolves.toMatchObject({ user_code: "USER-CODE" });
+    await expect(pollMyModelLoginDevice("model_codex")).resolves.toEqual({ status: "authorized" });
+    await expect(deleteMyModelLogin("model_codex")).resolves.toEqual({ logged_out: true });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/proxy/admin/models/model_1/oauth/device/start",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/proxy/admin/models/model_1/oauth/callback",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ code: "code_1", state: "state_1" }) })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/proxy/me/model-logins", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      9,
+      "/api/proxy/me/model-logins/model_codex",
+      expect.objectContaining({ method: "DELETE" })
+    );
   });
 
   test("searches the connector registry through the proxy", async () => {
