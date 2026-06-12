@@ -182,6 +182,8 @@ class ModelBackendRow(Base):
     base_url: Mapped[str] = mapped_column(String(255))
     model: Mapped[str] = mapped_column(String(128))
     api_key_enc: Mapped[str | None] = mapped_column(Text)  # 加密存储,API 不回显
+    auth_type: Mapped[str] = mapped_column(String(16), default="api_key")  # api_key | oauth
+    oauth_enc: Mapped[str | None] = mapped_column(Text)  # 加密:OAuth 配置+令牌(JSON)
     max_concurrency: Mapped[int] = mapped_column(default=2)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -56,13 +56,30 @@ class ModelDiscoverIn(BaseModel):
     api_key: str = ""
 
 
+class OAuthConfigIn(BaseModel):
+    client_id: str = Field(min_length=1)
+    client_secret: str = ""  # 公共客户端(PKCE/设备码)可空
+    token_url: str = Field(min_length=1)
+    device_authorization_url: str = ""  # 设备码流程需要
+    authorization_url: str = ""  # 授权码 PKCE 流程需要
+    scope: str = ""
+    redirect_uri: str = ""
+
+
 class ModelBackendIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     base_url: str = Field(min_length=1)
     model: str = Field(min_length=1)
     api_key: str = ""
+    auth_type: str = Field(default="api_key", pattern="^(api_key|oauth)$")
+    oauth: OAuthConfigIn | None = None  # auth_type=oauth 时填厂商发的应用配置
     max_concurrency: int = Field(default=2, ge=1, le=64)
     is_default: bool = False
+
+
+class OAuthCallbackIn(BaseModel):
+    code: str = Field(min_length=1)
+    state: str = ""
 
 
 class ModelBackendPatch(BaseModel):

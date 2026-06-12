@@ -34,6 +34,26 @@ def _load_models_config(path: str | None) -> dict | None:
     return yaml.safe_load(text)
 
 
+async def _oauth_refresh_loop(app: FastAPI) -> None:
+    """周期重建网关以刷新临近过期的 OAuth 令牌(仅当存在 oauth 后端时)。"""
+    from sqlalchemy import func, select
+
+    from .model_admin import rebuild_gateway
+    from .models import ModelBackendRow
+
+    while True:
+        await asyncio.sleep(240)  # 4 分钟
+        with contextlib.suppress(Exception):
+            async with app.state.sessionmaker() as session:
+                n = (
+                    await session.execute(
+                        select(func.count(ModelBackendRow.id)).where(ModelBackendRow.auth_type == "oauth")
+                    )
+                ).scalar_one()
+            if n:  # _oauth_access_token 仅在临近过期时真正刷新,平时是廉价空转
+                await rebuild_gateway(app)
+
+
 async def _sweep_loop(app: FastAPI) -> None:
     """心跳超时巡检:关掉僵死连接,由 ws handler 的清理逻辑统一善后。"""
     settings = app.state.settings
@@ -91,12 +111,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with contextlib.suppress(Exception):  # 连接器失败不阻断启动
             await app.state.connectors.reload(sessionmaker, settings.secret_key)
         sweeper = asyncio.create_task(_sweep_loop(app))
+        oauth_refresher = asyncio.create_task(_oauth_refresh_loop(app))
         try:
             yield
         finally:
-            sweeper.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await sweeper
+            for task in (sweeper, oauth_refresher):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             await engine.dispose()
 
     app = FastAPI(title="Agent Server", lifespan=lifespan)
