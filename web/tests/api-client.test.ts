@@ -25,6 +25,7 @@ import {
   importSkill,
   listConnectors,
   listConnectorPresets,
+  listConnectorRegistry,
   listMachines,
   listAdminSkills,
   listModelBackends,
@@ -259,6 +260,41 @@ describe("api-client", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/admin/model-providers", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/proxy/admin/connector-presets", expect.any(Object));
+  });
+
+  test("searches the connector registry through the proxy", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          {
+            name: "io.modelcontextprotocol/fetch",
+            title: "Fetch MCP",
+            description: "Fetches web content",
+            version: "1.0.0",
+            installable: true,
+            install: {
+              transport: "stdio",
+              command: "uvx",
+              args: ["mcp-server-fetch==1.0.0"],
+              env_keys: []
+            }
+          }
+        ]),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listConnectorRegistry("fetch", 20)).resolves.toEqual([
+      expect.objectContaining({
+        name: "io.modelcontextprotocol/fetch",
+        install: expect.objectContaining({ command: "uvx" })
+      })
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/proxy/admin/connector-registry?q=fetch&limit=20",
+      expect.any(Object)
+    );
   });
 
   test("uses admin connector endpoints through the proxy without echoing env values in reads", async () => {

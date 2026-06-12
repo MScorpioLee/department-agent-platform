@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   deleteModelBackend: vi.fn(),
   getMe: vi.fn(),
   listConnectorPresets: vi.fn(),
+  listConnectorRegistry: vi.fn(),
   listConnectors: vi.fn(),
   listModelBackends: vi.fn(),
   listModelProviders: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/lib/api-client", () => ({
   deleteModelBackend: mocks.deleteModelBackend,
   getMe: mocks.getMe,
   listConnectorPresets: mocks.listConnectorPresets,
+  listConnectorRegistry: mocks.listConnectorRegistry,
   listConnectors: mocks.listConnectors,
   listModelBackends: mocks.listModelBackends,
   listModelProviders: mocks.listModelProviders,
@@ -320,6 +322,145 @@ describe("admin model and connector pages", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存作用域" }));
 
     await waitFor(() => expect(mocks.putConnectorScope).toHaveBeenCalledWith("conn_1", ["u_alice"]));
+  });
+
+  test("imports an installable connector from the registry with approval enabled by default", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listUsers.mockResolvedValue([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" }]);
+    mocks.listConnectorPresets.mockResolvedValue([
+      { id: "custom", name: "自定义", transport: "stdio", args: [], env_keys: [], note: "" }
+    ]);
+    mocks.listConnectors
+      .mockResolvedValueOnce([
+        {
+          id: "conn_1",
+          name: "GitHub MCP",
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-github"],
+          env_keys: ["GITHUB_TOKEN"],
+          enabled: true,
+          require_approval: true,
+          scope_all: false,
+          scopes: [],
+          status: "connected",
+          tool_count: 8,
+          created_at: "2026-06-11T00:00:00Z"
+        }
+      ])
+      .mockResolvedValue([
+        {
+          id: "conn_fetch",
+          name: "fetch",
+          transport: "stdio",
+          command: "uvx",
+          args: ["mcp-server-fetch==1.0.0"],
+          env_keys: ["FETCH_TOKEN"],
+          enabled: true,
+          require_approval: true,
+          scope_all: false,
+          scopes: [],
+          status: "connected",
+          tool_count: 3,
+          created_at: "2026-06-11T00:01:00Z"
+        }
+      ]);
+    mocks.listConnectorRegistry.mockResolvedValue([
+      {
+        name: "io.modelcontextprotocol/fetch",
+        title: "Fetch MCP",
+        description: "Fetches web content with a pinned package.",
+        version: "1.0.0",
+        installable: true,
+        install: {
+          transport: "stdio",
+          command: "uvx",
+          args: ["mcp-server-fetch==1.0.0"],
+          env_keys: ["FETCH_TOKEN"]
+        }
+      },
+      {
+        name: "io.modelcontextprotocol/legacy",
+        title: "Legacy MCP",
+        description: "Missing install metadata.",
+        version: "0.3.0",
+        installable: false,
+        install: null
+      }
+    ]);
+    mocks.createConnector.mockResolvedValue({ id: "conn_fetch" });
+
+    render(<ConnectorsPage />);
+
+    expect(await screen.findByText("连接器市场")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("搜索市场"), { target: { value: "fetch" } });
+    fireEvent.click(screen.getByRole("button", { name: "搜索市场" }));
+
+    await waitFor(() => expect(mocks.listConnectorRegistry).toHaveBeenCalledWith("fetch", 20));
+    expect(await screen.findByText("Fetch MCP")).toBeTruthy();
+    expect(screen.getByText("Legacy MCP")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "暂不支持一键导入 Legacy MCP" })).toHaveProperty("disabled", true);
+
+    fireEvent.click(screen.getByRole("button", { name: "导入 Fetch MCP" }));
+
+    expect(screen.getByLabelText("连接器名称")).toHaveProperty("value", "fetch");
+    expect(screen.getByLabelText("Command")).toHaveProperty("value", "uvx");
+    expect(screen.getByLabelText("Args")).toHaveProperty("value", "mcp-server-fetch==1.0.0");
+    expect(screen.getByLabelText("每次调用需审批")).toHaveProperty("checked", true);
+    fireEvent.change(screen.getByLabelText("FETCH_TOKEN"), { target: { value: "fetch_live_secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建连接器" }));
+
+    await waitFor(() => {
+      expect(mocks.createConnector).toHaveBeenCalledWith({
+        name: "fetch",
+        transport: "stdio",
+        command: "uvx",
+        args: ["mcp-server-fetch==1.0.0"],
+        env: { FETCH_TOKEN: "fetch_live_secret" },
+        scope_all: false,
+        enabled: true,
+        require_approval: true
+      });
+    });
+    expect(screen.queryByText("fetch_live_secret")).toBeNull();
+  });
+
+  test("shows a friendly connector registry outage without hiding local connectors", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listUsers.mockResolvedValue([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" }]);
+    mocks.listConnectorPresets.mockResolvedValue([
+      { id: "custom", name: "自定义", transport: "stdio", args: [], env_keys: [], note: "" }
+    ]);
+    mocks.listConnectors.mockResolvedValue([
+      {
+        id: "conn_1",
+        name: "GitHub MCP",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+        env_keys: ["GITHUB_TOKEN"],
+        enabled: true,
+        require_approval: true,
+        scope_all: false,
+        scopes: [],
+        status: "connected",
+        tool_count: 8,
+        created_at: "2026-06-11T00:00:00Z"
+      }
+    ]);
+    const registryError = new Error("bad gateway") as Error & { status?: number; code?: string };
+    registryError.status = 502;
+    registryError.code = "registry_unavailable";
+    mocks.listConnectorRegistry.mockRejectedValue(registryError);
+
+    render(<ConnectorsPage />);
+
+    await waitFor(() => expect(screen.getAllByText("GitHub MCP").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("搜索市场"), { target: { value: "fetch" } });
+    fireEvent.click(screen.getByRole("button", { name: "搜索市场" }));
+
+    expect(await screen.findByText("连接器市场暂时不可用，请稍后重试；本地连接器列表不受影响")).toBeTruthy();
+    expect(screen.getAllByText("GitHub MCP").length).toBeGreaterThan(0);
   });
 
   test("non-admin users cannot access the model admin page", async () => {

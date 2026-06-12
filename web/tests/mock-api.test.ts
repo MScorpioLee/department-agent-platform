@@ -361,6 +361,55 @@ describe("mock api", () => {
     expect(JSON.stringify(updated.body)).not.toContain("xoxb-live-secret");
   });
 
+  test("supports connector registry search and registry outage in mock mode", async () => {
+    const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
+
+    const fetchResults = await api.handle(
+      "GET",
+      ["admin", "connector-registry"],
+      undefined,
+      new URLSearchParams("q=fetch&limit=20")
+    );
+    expect(fetchResults.status).toBe(200);
+    expect(fetchResults.body).toEqual([
+      expect.objectContaining({
+        name: "io.modelcontextprotocol/fetch",
+        title: "Fetch MCP",
+        installable: true,
+        install: expect.objectContaining({
+          command: "uvx",
+          args: ["mcp-server-fetch==1.0.0"],
+          env_keys: ["FETCH_TOKEN"]
+        })
+      })
+    ]);
+
+    const unsupported = await api.handle(
+      "GET",
+      ["admin", "connector-registry"],
+      undefined,
+      new URLSearchParams("q=legacy&limit=20")
+    );
+    expect(unsupported.body).toEqual([
+      expect.objectContaining({
+        title: "Legacy MCP",
+        installable: false,
+        install: null
+      })
+    ]);
+
+    const unavailable = await api.handle(
+      "GET",
+      ["admin", "connector-registry"],
+      undefined,
+      new URLSearchParams("q=unavailable&limit=20")
+    );
+    expect(unavailable).toEqual({
+      status: 502,
+      body: { error: { code: "registry_unavailable", message: "连接器注册表暂不可用" } }
+    });
+  });
+
   test("supports skill mock flows with authorization filtering and import", async () => {
     const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
 

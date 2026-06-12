@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   Connector,
   ConnectorPreset,
+  ConnectorRegistryEntry,
   ConnectorTransport,
   CreateTaskRequest,
   Machine,
@@ -393,6 +394,42 @@ export function createMockApi(options: MockApiOptions = {}) {
       args: [],
       env_keys: [],
       note: "手动填写 command/args 或 HTTP URL"
+    }
+  ];
+  const connectorRegistry: ConnectorRegistryEntry[] = [
+    {
+      name: "io.modelcontextprotocol/fetch",
+      title: "Fetch MCP",
+      description: "Fetches web content with a pinned package.",
+      version: "1.0.0",
+      installable: true,
+      install: {
+        transport: "stdio",
+        command: "uvx",
+        args: ["mcp-server-fetch==1.0.0"],
+        env_keys: ["FETCH_TOKEN"]
+      }
+    },
+    {
+      name: "com.playwright/browser",
+      title: "Browser MCP",
+      description: "Browser automation connector pinned to a fixed release.",
+      version: "2.4.1",
+      installable: true,
+      install: {
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-puppeteer@2.4.1"],
+        env_keys: []
+      }
+    },
+    {
+      name: "io.modelcontextprotocol/legacy",
+      title: "Legacy MCP",
+      description: "Registry entry without safe install metadata.",
+      version: "0.3.0",
+      installable: false,
+      install: null
     }
   ];
   const skills = new Map<string, AdminSkill>([
@@ -911,6 +948,24 @@ export function createMockApi(options: MockApiOptions = {}) {
     return { status: 200, body: { user_ids: userIds } };
   }
 
+  function searchConnectorRegistry(searchParams: URLSearchParams): MockApiResponse {
+    const query = (searchParams.get("q") ?? "").trim().toLowerCase();
+    if (query === "unavailable") {
+      return error(502, "registry_unavailable", "连接器注册表暂不可用");
+    }
+    const limitValue = Number(searchParams.get("limit") ?? "20");
+    const limit = Number.isFinite(limitValue) && limitValue > 0 ? Math.min(limitValue, 50) : 20;
+    const results = connectorRegistry
+      .filter((entry) => {
+        if (!query) return true;
+        return [entry.name, entry.title, entry.description, entry.version].some((value) =>
+          value.toLowerCase().includes(query)
+        );
+      })
+      .slice(0, limit);
+    return { status: 200, body: results };
+  }
+
   function isSkillAuthorized(skill: AdminSkill) {
     return skill.scope_all || skill.scopes.includes("u_mock_user");
   }
@@ -1201,6 +1256,10 @@ export function createMockApi(options: MockApiOptions = {}) {
 
       if (adminResource === "connector-presets" && normalizedMethod === "GET" && pathSegments.length === 2) {
         return { status: 200, body: connectorPresets };
+      }
+
+      if (adminResource === "connector-registry" && normalizedMethod === "GET" && pathSegments.length === 2) {
+        return searchConnectorRegistry(searchParams);
       }
 
       if (adminResource === "connectors") {

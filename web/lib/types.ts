@@ -156,6 +156,23 @@ export interface ConnectorPreset {
   note?: string;
 }
 
+export interface ConnectorRegistryInstall {
+  transport: ConnectorTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env_keys: string[];
+}
+
+export interface ConnectorRegistryEntry {
+  name: string;
+  title: string;
+  description: string;
+  version: string;
+  installable: boolean;
+  install: ConnectorRegistryInstall | null;
+}
+
 export interface CreateConnectorRequest {
   name: string;
   transport: ConnectorTransport;

@@ -12,6 +12,7 @@ import type {
   CancelTaskResponse,
   Connector,
   ConnectorPreset,
+  ConnectorRegistryEntry,
   CreateEnrollmentTokenRequest,
   CreateConnectorRequest,
   CreateSkillRequest,
@@ -381,6 +382,11 @@ export function listConnectors(): Promise<Connector[]> {
 
 export function listConnectorPresets(): Promise<ConnectorPreset[]> {
   return apiFetch<ConnectorPreset[]>("/admin/connector-presets");
+}
+
+export function listConnectorRegistry(query: string, limit = 20): Promise<ConnectorRegistryEntry[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) });
+  return apiFetch<ConnectorRegistryEntry[]>(`/admin/connector-registry?${params.toString()}`);
 }
 
 export function createConnector(request: CreateConnectorRequest): Promise<Connector> {

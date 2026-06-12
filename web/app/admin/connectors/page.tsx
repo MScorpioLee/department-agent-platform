@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Plug, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import { Download, Loader2, Plug, Plus, RefreshCw, Search, ShieldAlert, Trash2 } from "lucide-react";
 import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminGuard } from "@/components/admin-guard";
@@ -8,6 +8,7 @@ import {
   createConnector,
   deleteConnector,
   listConnectorPresets,
+  listConnectorRegistry,
   listConnectors,
   listUsers,
   putConnectorScope,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/cn";
 import type {
   Connector,
   ConnectorPreset,
+  ConnectorRegistryEntry,
   ConnectorTransport,
   UpdateConnectorRequest,
   User
@@ -60,6 +62,20 @@ function hasPlaceholder(value: string) {
   return value.includes("/path/to/") || value.includes("postgresql://");
 }
 
+function registryErrorMessage(error: unknown) {
+  const status = typeof error === "object" && error !== null ? (error as { status?: number }).status : undefined;
+  const code = typeof error === "object" && error !== null ? (error as { code?: string }).code : undefined;
+  if (status === 502 || code === "registry_unavailable") {
+    return "连接器市场暂时不可用，请稍后重试；本地连接器列表不受影响";
+  }
+  return getErrorMessage(error);
+}
+
+function defaultConnectorName(registryName: string) {
+  const segments = registryName.split(/[/:]/).filter(Boolean);
+  return segments[segments.length - 1] || registryName;
+}
+
 function AdminConnectorsContent() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
   const [presets, setPresets] = useState<ConnectorPreset[]>([]);
@@ -82,6 +98,11 @@ function AdminConnectorsContent() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [transportFilter, setTransportFilter] = useState("all");
+  const [registryQuery, setRegistryQuery] = useState("");
+  const [registryResults, setRegistryResults] = useState<ConnectorRegistryEntry[]>([]);
+  const [registrySearched, setRegistrySearched] = useState(false);
+  const [registryLoading, setRegistryLoading] = useState(false);
+  const [registryError, setRegistryError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,9 +226,44 @@ function AdminConnectorsContent() {
     );
   }
 
+  async function searchRegistry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setRegistryLoading(true);
+    setRegistryError(null);
+    setRegistrySearched(true);
+    try {
+      const results = await listConnectorRegistry(registryQuery.trim(), 20);
+      setRegistryResults(results);
+    } catch (requestError) {
+      setRegistryResults([]);
+      setRegistryError(registryErrorMessage(requestError));
+    } finally {
+      setRegistryLoading(false);
+    }
+  }
+
+  function importRegistryConnector(entry: ConnectorRegistryEntry) {
+    if (!entry.install) return;
+    setEditingId(null);
+    setShowConnectorForm(true);
+    setSelectedPresetId("custom");
+    setName(defaultConnectorName(entry.name));
+    setTransport(entry.install.transport);
+    setCommand(entry.install.command ?? "");
+    setArgsText((entry.install.args ?? []).join("\n"));
+    setUrl(entry.install.url ?? "");
+    setEnvText("");
+    setPresetEnvValues(Object.fromEntries(entry.install.env_keys.map((key) => [key, ""])));
+    setEnabled(true);
+    setRequireApproval(true);
+    setScopeAll(false);
+    setMessage(`已从市场预填 ${entry.title || entry.name}`);
+    setError(null);
+  }
+
   async function submitConnector(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsedEnv = selectedPreset && selectedPreset.id !== "custom" ? presetEnv() : parseEnv(envText);
+    const parsedEnv = !editingId && Object.keys(presetEnvValues).length > 0 ? presetEnv() : parseEnv(envText);
     const env = Object.keys(parsedEnv).length > 0 ? parsedEnv : undefined;
 
     setSubmitting(true);
@@ -292,6 +348,7 @@ function AdminConnectorsContent() {
   }
 
   const argsNeedReplacement = parseLines(argsText).some(hasPlaceholder);
+  const credentialKeys = Object.keys(presetEnvValues);
 
   return (
     <section className="space-y-5">
@@ -326,6 +383,99 @@ function AdminConnectorsContent() {
           连接器会在服务端运行你提供的第三方程序，仅管理员可配置，请确认来源可信
         </div>
       </div>
+
+      <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">连接器市场</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              导入即在服务端运行第三方代码，请确认来源可信；版本已钉死，不会自动更新
+            </p>
+          </div>
+        </div>
+        <form onSubmit={(event) => void searchRegistry(event)} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]">
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium text-slate-700">搜索市场</span>
+            <input
+              value={registryQuery}
+              onChange={(event) => setRegistryQuery(event.target.value)}
+              placeholder="fetch、github、browser"
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+            />
+          </label>
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={registryLoading}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {registryLoading ? (
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search aria-hidden="true" className="h-4 w-4" />
+              )}
+              搜索市场
+            </button>
+          </div>
+        </form>
+        {registryError ? (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {registryError}
+          </div>
+        ) : null}
+        {registrySearched && !registryLoading && registryResults.length === 0 && !registryError ? (
+          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+            未找到匹配的连接器
+          </div>
+        ) : null}
+        {registryResults.length > 0 ? (
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {registryResults.map((entry) => {
+              const canImport = entry.installable && entry.install;
+              return (
+                <article key={entry.name} className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-slate-950">{entry.title || entry.name}</h3>
+                        <span className="rounded-md border border-slate-200 bg-white px-2 py-1 font-mono text-xs text-slate-500">
+                          {entry.version}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate font-mono text-xs text-slate-500">{entry.name}</div>
+                      <p className="mt-2 text-sm leading-5 text-slate-600">{entry.description}</p>
+                      {entry.install ? (
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                          <span>transport: {entry.install.transport}</span>
+                          {entry.install.command ? <span>command: {entry.install.command}</span> : null}
+                          {entry.install.url ? <span>url: {entry.install.url}</span> : null}
+                          <span>
+                            env_keys: {entry.install.env_keys.length > 0 ? entry.install.env_keys.join(", ") : "-"}
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={
+                        canImport
+                          ? `导入 ${entry.title || entry.name}`
+                          : `暂不支持一键导入 ${entry.title || entry.name}`
+                      }
+                      disabled={!canImport}
+                      onClick={() => importRegistryConnector(entry)}
+                      className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Download aria-hidden="true" className="h-4 w-4" />
+                      {canImport ? "导入" : "暂不支持一键导入"}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+      </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
@@ -405,9 +555,9 @@ function AdminConnectorsContent() {
                     <input required value={url} onChange={(event) => setUrl(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
                   </label>
                 )}
-                {!editingId && selectedPreset && selectedPreset.id !== "custom" && selectedPreset.env_keys.length > 0 ? (
+                {!editingId && credentialKeys.length > 0 ? (
                   <div className="space-y-3">
-                    {selectedPreset.env_keys.map((key) => (
+                    {credentialKeys.map((key) => (
                       <label key={key} className="block space-y-1.5">
                         <span className="text-sm font-medium text-slate-700">{key}</span>
                         <input
