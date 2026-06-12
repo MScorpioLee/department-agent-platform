@@ -184,3 +184,20 @@ OpenAI 未禁止第三方工具用 ChatGPT/Codex 订阅(与 Anthropic 相反,见
 诚实边界:Codex 后端的**真实端点 URL + 账号头**是 ChatGPT 私有面、随版本变,**不在代码内硬编码**——
 做成 base_url + extra_headers 配置位,由部署者从当前 codex 源码填。转译逻辑与 OAuth 都已测;
 "真实联通"那一步取决于填入的私有面值是否当前有效。UI=T-WEB-18。
+
+
+## M16:桌面编码 Agent(类 Codex/Claude Code 的 GUI 客户端)
+
+形态:装机窗口应用,选项目目录,在其中对话式编码。复用 Tauri desktop。
+
+### Rust(本地工具层,安全边界)
+- 工作区状态(选定目录,canonicalize),命令:agent_set/get_workspace、agent_list_files/
+  read_file/write_file/run_command、agent_model_chat(经 /v1 中转,token 留钥匙串)。
+- **路径锁定在 Rust 强制**:normalize_within 词法解析,`..` 越根 / 绝对路径一律 path_denied;
+  run_command 固定在工作区 cwd 执行;输出截断 30KB。6 个 Rust 单测全过(含越界拒绝)。
+
+### 前端(交 Codex,T-DESK-03)
+- Agent Loop 在 TS 跑(model_chat ↔ 本地工具),界面:文件树 + 对话 + 工具卡 + 写文件 diff +
+  命令内联审批。仅桌面端可见。
+
+诚实边界:Rust 核心已 cargo 编译 + 单测验证;完整 GUI 需真实构建环境跑(本机无显示),交 Codex 实现后联调。
