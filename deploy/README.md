@@ -21,6 +21,17 @@ For a local smoke test without TLS, set `PUBLIC_HOST=:80` in `.env` and open `ht
 - `web`: builds from `../web`, uses `AGENT_API_BASE=http://server:8700`, and serves with `next start`.
 - `caddy`: exposes the WebUI, Runner enrollment, `/ws/runner`, and `/ws/client` for the WebUI realtime stream.
 
+## Connector Sandbox (MCP)
+
+MCP stdio connectors run as child processes inside the `server` container. The container is the sandbox boundary:
+
+- runs as non-root user `agent` (see `server.Dockerfile`), with `nodejs/npm` and `uv` installed so `npx`/`uvx` preset connectors work;
+- `cap_drop: ALL` + `no-new-privileges` + `pids_limit` + memory/CPU limits (`SERVER_MEM_LIMIT`, `SERVER_CPU_LIMIT` in `.env`);
+- connector package caches persist in the `connector-cache` volume;
+- the app layer additionally isolates env (only the connector's own variables are injected), enforces call timeouts, output caps, and optional per-connector approval.
+
+`AGENT_SECRET_KEY` encrypts model/connector credentials at rest; set it once to a strong random value and never rotate it casually (existing ciphertexts become unreadable).
+
 ## Admin Login
 
 The first admin is seeded from:

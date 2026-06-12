@@ -126,6 +126,53 @@ async def test_connector_output_truncated(tmp_path):
     await engine.dispose()
 
 
+# ---------- 注册表搜索/一键导入翻译 ----------
+
+
+def test_registry_entry_to_connector():
+    from app.connector_registry import entry_to_connector
+
+    npm = {"packages": [{"registryType": "npm", "identifier": "@scope/mcp-x", "version": "1.2.3",
+                         "transport": {"type": "stdio"},
+                         "environmentVariables": [{"name": "X_TOKEN", "isRequired": True}]}]}
+    c = entry_to_connector(npm)
+    assert c["command"] == "npx" and c["args"][:2] == ["-y", "@scope/mcp-x@1.2.3"]  # 版本钉死
+    assert c["env_keys"] == ["X_TOKEN"]
+
+    pypi = {"packages": [{"registryType": "pypi", "identifier": "mcp-y", "version": "0.5.0",
+                          "packageArguments": [{"type": "positional", "value": "serve"},
+                                               {"type": "named", "name": "--port", "value": "80"}]}]}
+    c = entry_to_connector(pypi)
+    assert c["command"] == "uvx" and c["args"] == ["mcp-y==0.5.0", "serve", "--port", "80"]
+
+    remote = {"remotes": [{"type": "streamable-http", "url": "https://x.example/mcp"}]}
+    c = entry_to_connector(remote)
+    assert c["transport"] == "http" and c["url"] == "https://x.example/mcp"
+
+    assert entry_to_connector({"packages": [{"registryType": "oci", "identifier": "img"}]}) is None
+
+
+def test_registry_search_endpoint(client, monkeypatch):
+    from app import connector_registry
+
+    async def fake_fetch(query, limit, base_url=None):
+        return {"servers": [{"server": {
+            "name": "io.github.x/fetch", "title": "Fetch", "description": "抓网页", "version": "1.0.0",
+            "packages": [{"registryType": "pypi", "identifier": "mcp-server-fetch", "version": "1.0.0"}],
+        }}]}
+
+    monkeypatch.setattr(connector_registry, "fetch_registry", fake_fetch)
+    rows = client.get("/api/admin/connector-registry?q=fetch", headers=admin_h(client)).json()
+    assert rows[0]["installable"] is True
+    assert rows[0]["install"]["args"] == ["mcp-server-fetch==1.0.0"]
+
+    # 非管理员 403
+    client.post("/api/users", headers=admin_h(client), json={"username": "u2", "password": "pass1234"})
+    utok = client.post("/api/auth/login", json={"username": "u2", "password": "pass1234"}).json()["token"]
+    assert client.get("/api/admin/connector-registry?q=x",
+                      headers={"Authorization": f"Bearer {utok}"}).status_code == 403
+
+
 def test_require_approval_flow(client):
     """标记 require_approval 的连接器:模型调用→生成审批;批准→服务端执行并返回结果。"""
     from types import SimpleNamespace

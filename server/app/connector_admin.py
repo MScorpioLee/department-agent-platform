@@ -55,6 +55,20 @@ async def list_connector_presets() -> list[dict]:
     return CONNECTOR_PRESETS
 
 
+@router.get("/connector-registry")
+async def search_connector_registry(q: str = "", limit: int = 20) -> list[dict]:
+    """搜索 MCP 官方注册表,返回可一键导入的连接器配置(版本已钉死)。
+
+    导入=信任第三方代码:结果仅供管理员选择后走既有 POST /connectors 创建。
+    """
+    from .connector_registry import search_registry
+
+    try:
+        return await search_registry(q, min(max(limit, 1), 50))
+    except Exception as exc:
+        raise HTTPException(502, {"code": "registry_unavailable", "message": f"注册表不可用: {exc}"})
+
+
 @router.get("/connectors")
 async def list_connectors(request: Request) -> list[dict]:
     sk = request.app.state.settings.secret_key

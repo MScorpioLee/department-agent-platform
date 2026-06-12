@@ -30,13 +30,23 @@ services:
       AGENT_MODELS_CONFIG_PATH: /config/models.yaml
       AGENT_API_KEY: ${AGENT_API_KEY}
       AGENT_ENROLLMENT_TOKEN: ${AGENT_ENROLLMENT_TOKEN}
+      AGENT_SECRET_KEY: ${AGENT_SECRET_KEY}
       AGENT_ADMIN_USERNAME: ${AGENT_ADMIN_USERNAME}
       AGENT_ADMIN_PASSWORD: ${AGENT_ADMIN_PASSWORD}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
     volumes:
       - ./models.yaml:/config/models.yaml:ro
+      - connector-cache:/home/agent  # npx/uvx 包缓存(MCP 连接器),避免每次冷启动重新下载
     expose:
       - "8700"
+    # 沙箱边界:容器内低权限账号(见 server.Dockerfile)+ 以下限制,约束 MCP 第三方子进程
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: ${SERVER_MEM_LIMIT:-1g}
+    cpus: ${SERVER_CPU_LIMIT:-2}
 
   web:
     build:
@@ -73,3 +83,4 @@ volumes:
   postgres-data:
   caddy-data:
   caddy-config:
+  connector-cache:
