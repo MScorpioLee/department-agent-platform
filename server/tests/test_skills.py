@@ -90,6 +90,36 @@ def test_skill_prompt_enters_session(client, monkeypatch):
     assert "SKILL_MARKER_必须出现" in captured["system"]
 
 
+def test_allowed_roots_in_system_prompt(client):
+    """机器上报 allowed_roots 后,系统提示词应告知模型可用根目录(防盲猜 workdir)。"""
+    from types import SimpleNamespace
+
+    r = client.post("/api/runners/enroll", headers={"Authorization": "Bearer test-enroll"},
+                    json={"machine_name": "m2", "os": "windows"})
+    mid, rtok = r.json()["machine_id"], r.json()["runner_token"]
+    with client.websocket_connect("/ws/runner", headers={"Authorization": f"Bearer {rtok}"}) as ws:
+        ws.send_json({"type": "hello", "machine_id": mid, "capabilities": ["remote_exec"],
+                      "allowed_roots": ["D:/Tools/agent-workspace"]})
+        assert ws.receive_json()["type"] == "hello_ack"
+
+        sess_id = client.post("/api/sessions", headers={"X-API-Key": "test-key"},
+                              json={"machine_id": mid}).json()["session_id"]
+        captured = {}
+
+        class FakeGateway:
+            def resolve(self, user_id=None):
+                return SimpleNamespace(id="fake", model="fake")
+
+            async def chat(self, backend, messages, tools=None, **kw):
+                captured["system"] = messages[0]["content"]
+                return {"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}}
+
+        client.app.state.gateway = FakeGateway()
+        assert client.post(f"/api/sessions/{sess_id}/messages", headers={"X-API-Key": "test-key"},
+                           json={"content": "hi"}).status_code == 200
+        assert "D:/Tools/agent-workspace" in captured["system"]
+
+
 def test_builtin_skills_seeded(client):
     # 启动时已播种内置技能,管理员能看到 source=builtin 的若干技能
     rows = client.get("/api/admin/skills", headers=admin_h(client)).json()

@@ -228,6 +228,7 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         machine_tools = machine.tools
         machine_name = machine.machine_name
         machine_os = machine.os or "unknown"
+        machine_roots = machine.allowed_roots or []
         machine_for_exec = machine
 
     try:
@@ -236,6 +237,9 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         raise HTTPException(503, {"code": exc.code, "message": exc.message})
 
     system_content = SYSTEM_PROMPT.format(machine_name=machine_name, os=machine_os)
+    if machine_roots:
+        # 告知模型可用根目录,避免其盲猜 workdir 反复 path_denied 撞步数上限
+        system_content += f"\n该机器允许操作的根目录(workdir 与文件路径必须在其下):{', '.join(machine_roots)}"
     skill_prompts = await active_skill_prompts(sessionmaker, user_id)
     if skill_prompts:
         system_content += "\n\n# 已启用技能(遵循以下指引)\n\n" + "\n\n---\n\n".join(skill_prompts)
