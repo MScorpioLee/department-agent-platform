@@ -11,15 +11,14 @@ from sqlalchemy import func, select
 
 from .auth import require_admin
 from .model_gateway import ModelBackend, ModelGateway
-from .models import ModelBackendRow, User, UserModelRoute, new_id
+from .models import iso_utc, ModelBackendRow, User, UserModelRoute, new_id
 from .schemas import ModelBackendIn, ModelBackendPatch, ModelRouteIn
 from .secret import decrypt, encrypt, redact_secret
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
 
-def _iso(dt):
-    return dt.isoformat() if dt else None
+_iso = iso_utc
 
 
 async def load_gateway_from_db(sessionmaker, secret_key: str) -> ModelGateway:

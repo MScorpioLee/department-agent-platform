@@ -20,6 +20,15 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def iso_utc(dt: datetime | None) -> str | None:
+    """时间戳出 API 的统一格式。SQLite 读出的是 naive UTC;补上时区,否则前端按本地时间解析会偏一个时区。"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 class Machine(Base):
     __tablename__ = "machines"
 

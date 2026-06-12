@@ -27,6 +27,7 @@ from .models import (
     Task,
     ToolCall,
     User,
+    iso_utc,
     new_id,
     utcnow,
 )
@@ -46,13 +47,7 @@ from .services import create_approval, dispatch_no_wait, run_session_turn
 
 router = APIRouter()
 
-def _iso(dt: datetime | None) -> str | None:
-    if dt is None:
-        return None
-    # SQLite 读出的是 naive UTC;补上 UTC 时区,使前端按 UTC 解析(否则被当本地时间,偏一个时区)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.isoformat()
+_iso = iso_utc
 
 
 def _machine_out(m: Machine, online: bool) -> dict:

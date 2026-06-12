@@ -10,15 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, select
 
 from .auth import require_admin
-from .models import Connector, ConnectorScope, new_id
+from .models import iso_utc, Connector, ConnectorScope, new_id
 from .schemas import ConnectorIn, ConnectorPatch, ConnectorScopeIn
 from .secret import decrypt, encrypt
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
 
-def _iso(dt):
-    return dt.isoformat() if dt else None
+_iso = iso_utc
 
 
 async def _reload(request: Request) -> None:

@@ -11,15 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from .auth import require_admin, require_user
-from .models import Skill, SkillScope, User, UserSkillState, new_id
+from .models import Skill, SkillScope, User, UserSkillState, iso_utc, new_id
 from .schemas import SkillImportIn, SkillIn, SkillPatch, SkillScopeIn, SkillToggleIn
 
 router = APIRouter()
 log = logging.getLogger("agent_runner.skills")
 
 
-def _iso(dt):
-    return dt.isoformat() if dt else None
+_iso = iso_utc
 
 
 def parse_skill_manifest(text: str) -> dict:
