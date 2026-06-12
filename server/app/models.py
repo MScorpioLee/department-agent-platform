@@ -206,6 +206,20 @@ class MachineGrant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class UserApiKey(Base):
+    """个人 API Key(M13 中转站):把服务端当 OpenAI 兼容供应商接入任意工具。哈希存储,明文仅创建时返回一次。"""
+
+    __tablename__ = "user_api_keys"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+    key_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    prefix: Mapped[str] = mapped_column(String(16))  # 形如 ak_3f9c…,供列表辨认
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class ModelUsage(Base):
     __tablename__ = "model_usage"
 

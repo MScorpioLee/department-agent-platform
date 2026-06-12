@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from . import audit, client_ws, connector_admin, model_admin, routes, skills, ws
+from . import audit, client_ws, connector_admin, model_admin, relay, routes, skills, ws
 from .auth import hash_password
 from .config import Settings
 from .db import Base
@@ -114,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.tickets = TicketStore()
     app.state.task_sessions = {}  # task_id → session_id,供实时输出路由
     app.include_router(routes.router)
+    app.include_router(relay.router)
     app.include_router(audit.router)
     app.include_router(model_admin.router)
     app.include_router(connector_admin.router)

@@ -129,6 +129,15 @@ async def cmd_chat(args) -> None:
             print(f"✗ {e}")
 
 
+async def cmd_code(args) -> None:
+    from .local_agent import run_local_agent
+
+    cfg = config.load()
+    if not cfg.get("server_url") or not cfg.get("token"):
+        sys.exit("未登录。先运行: agent login <server_url>")
+    await run_local_agent(cfg["server_url"], cfg["token"], auto_yes=args.yes, once=args.once)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="agent", description="Department Agent 终端客户端")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -154,6 +163,11 @@ def main() -> None:
     sp = sub.add_parser("chat", help="对话(模型驱动远程机器)")
     sp.add_argument("-m", "--machine", required=True, help="机器名或 id")
     sp.set_defaults(func=cmd_chat)
+
+    sp = sub.add_parser("code", help="本地 Agent(类 Claude Code:在当前目录干活,模型走服务端中转)")
+    sp.add_argument("-y", "--yes", action="store_true", help="自动批准命令执行(默认逐条确认)")
+    sp.add_argument("--once", help="单次任务,执行完退出(非交互)")
+    sp.set_defaults(func=cmd_code)
 
     args = p.parse_args()
     try:
