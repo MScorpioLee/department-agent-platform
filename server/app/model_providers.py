@@ -27,7 +27,8 @@ async def list_models_from_endpoint(base_url: str, api_key: str = "") -> list[st
 
 PRESET_PROVIDERS = [
     {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com/v1",
-     "models": ["deepseek-chat", "deepseek-reasoner"], "needs_key": True, "note": ""},
+     "models": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"], "needs_key": True,
+     "note": "建议点「获取模型列表」拉取实际可用模型"},
     {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1",
      "models": ["gpt-4o", "gpt-4o-mini", "o4-mini"], "needs_key": True, "note": ""},
     {"id": "google", "name": "Google AI Studio (Gemini)", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
