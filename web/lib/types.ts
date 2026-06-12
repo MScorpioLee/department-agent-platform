@@ -7,6 +7,8 @@ export type ToolName =
   | "remote_patch_file"
   | "remote_list_files";
 
+export type ApprovalToolName = ToolName | `mcp__${string}`;
+
 export type TaskStatus =
   | "queued"
   | "dispatched"
@@ -135,6 +137,7 @@ export interface Connector {
   url?: string;
   env_keys: string[];
   enabled: boolean;
+  require_approval: boolean;
   scope_all: boolean;
   scopes: string[];
   status: string;
@@ -161,6 +164,7 @@ export interface CreateConnectorRequest {
   url?: string;
   env?: Record<string, string>;
   enabled?: boolean;
+  require_approval?: boolean;
   scope_all?: boolean;
 }
 
@@ -172,6 +176,7 @@ export interface UpdateConnectorRequest {
   url?: string;
   env?: Record<string, string>;
   enabled?: boolean;
+  require_approval?: boolean;
   scope_all?: boolean;
 }
 
@@ -314,19 +319,31 @@ export interface Approval {
   approval_id: string;
   machine_id: string;
   requested_by_user_id: string;
-  tool: ToolName;
+  tool: ApprovalToolName;
   payload: Record<string, unknown>;
   risk_rule: string;
   status: string;
   created_at: string;
 }
 
-export interface ApproveApprovalResponse {
+export interface ApproveTaskApprovalResponse {
   approval_id: string;
   status: "approved";
   task_id: string;
   task_status: string;
 }
+
+export interface ApproveConnectorApprovalResponse {
+  approval_id: string;
+  status: "approved";
+  result: {
+    content?: unknown;
+    [key: string]: unknown;
+  };
+  tool_status: "completed" | "failed";
+}
+
+export type ApproveApprovalResponse = ApproveTaskApprovalResponse | ApproveConnectorApprovalResponse;
 
 export interface RejectApprovalResponse {
   approval_id: string;

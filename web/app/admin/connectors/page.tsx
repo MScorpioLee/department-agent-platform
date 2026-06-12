@@ -75,6 +75,7 @@ function AdminConnectorsContent() {
   const [envText, setEnvText] = useState("");
   const [presetEnvValues, setPresetEnvValues] = useState<Record<string, string>>({});
   const [enabled, setEnabled] = useState(true);
+  const [requireApproval, setRequireApproval] = useState(false);
   const [scopeAll, setScopeAll] = useState(false);
   const [scopeConnectorId, setScopeConnectorId] = useState("");
   const [scopeUserId, setScopeUserId] = useState("");
@@ -150,6 +151,7 @@ function AdminConnectorsContent() {
     setUrl(preset.url ?? "");
     setEnvText("");
     setPresetEnvValues(Object.fromEntries(preset.env_keys.map((key) => [key, ""])));
+    setRequireApproval(false);
   }
 
   function resetForm() {
@@ -164,6 +166,7 @@ function AdminConnectorsContent() {
     setEnvText("");
     setPresetEnvValues({});
     setEnabled(true);
+    setRequireApproval(false);
     setScopeAll(false);
   }
 
@@ -189,6 +192,7 @@ function AdminConnectorsContent() {
     setEnvText("");
     setPresetEnvValues({});
     setEnabled(connector.enabled);
+    setRequireApproval(connector.require_approval);
     setScopeAll(connector.scope_all);
     setMessage(null);
   }
@@ -215,6 +219,7 @@ function AdminConnectorsContent() {
           name: name.trim(),
           transport,
           enabled,
+          require_approval: requireApproval,
           scope_all: scopeAll
         };
         if (transport === "stdio") {
@@ -235,7 +240,8 @@ function AdminConnectorsContent() {
             : { url: url.trim() }),
           ...(env ? { env } : {}),
           scope_all: scopeAll,
-          enabled
+          enabled,
+          require_approval: requireApproval
         });
         setMessage("连接器已创建");
       }
@@ -426,6 +432,10 @@ function AdminConnectorsContent() {
                   启用
                 </label>
                 <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={requireApproval} onChange={(event) => setRequireApproval(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                  每次调用需审批
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input type="checkbox" checked={scopeAll} onChange={(event) => setScopeAll(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
                   全员可用
                 </label>
@@ -530,7 +540,16 @@ function AdminConnectorsContent() {
                 ) : (
                   filteredConnectors.map((connector) => (
                     <tr key={connector.id} className="hover:bg-slate-50">
-                      <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-950">{connector.name}</td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-slate-950">{connector.name}</span>
+                          {connector.require_approval ? (
+                            <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
+                              需审批
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="whitespace-nowrap px-4 py-4 text-slate-600">{connector.transport}</td>
                       <td className="whitespace-nowrap px-4 py-4 font-mono text-xs text-slate-600">{connector.transport === "stdio" ? connector.command : connector.url}</td>
                       <td className="whitespace-nowrap px-4 py-4 font-mono text-xs text-slate-600">{connector.env_keys.length > 0 ? connector.env_keys.join(", ") : "-"}</td>

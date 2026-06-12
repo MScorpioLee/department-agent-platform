@@ -78,6 +78,39 @@ describe("approvals and access ui", () => {
     });
   });
 
+  test("approves connector approvals and renders the tool result summary", async () => {
+    mocks.listApprovals
+      .mockResolvedValueOnce([
+        {
+          approval_id: "ap_connector",
+          machine_id: "m_1",
+          requested_by_user_id: "u_1",
+          tool: "mcp__github__create_issue",
+          payload: { title: "Ship release note" },
+          risk_rule: "connector_requires_approval",
+          status: "pending",
+          created_at: "2026-06-10T12:00:00Z"
+        }
+      ])
+      .mockResolvedValue([]);
+    mocks.approveApproval.mockResolvedValue({
+      approval_id: "ap_connector",
+      status: "approved",
+      result: { content: "echo: hi" },
+      tool_status: "completed"
+    });
+
+    render(<ApprovalsPage />);
+
+    expect(await screen.findByText("连接器调用审批")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "批准 ap_connector" }));
+
+    await waitFor(() => {
+      expect(mocks.approveApproval).toHaveBeenCalledWith("ap_connector");
+      expect(screen.getByText("已批准，连接器执行 completed: echo: hi")).toBeTruthy();
+    });
+  });
+
   test("creates and revokes machine grants", async () => {
     mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
     mocks.listMachineGrants

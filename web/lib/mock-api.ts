@@ -337,6 +337,7 @@ export function createMockApi(options: MockApiOptions = {}) {
         args: ["-y", "@modelcontextprotocol/server-github"],
         env_keys: ["GITHUB_TOKEN"],
         enabled: true,
+        require_approval: true,
         scope_all: false,
         scopes: ["u_mock_user"],
         status: "connected",
@@ -353,6 +354,7 @@ export function createMockApi(options: MockApiOptions = {}) {
         url: "https://mcp.example.test",
         env_keys: [],
         enabled: false,
+        require_approval: false,
         scope_all: true,
         scopes: [],
         status: "disabled",
@@ -478,6 +480,16 @@ export function createMockApi(options: MockApiOptions = {}) {
       risk_rule: "系统路径写入",
       status: "pending",
       created_at: new Date(current - 11 * 60 * 1000).toISOString()
+    });
+    approvals.set("ap_mock_connector", {
+      approval_id: "ap_mock_connector",
+      machine_id: "m_mock_online",
+      requested_by_user_id: "u_mock_user",
+      tool: "mcp__github__create_issue",
+      payload: { title: "Ship release note" },
+      risk_rule: "connector_requires_approval",
+      status: "pending",
+      created_at: new Date(current - 17 * 60 * 1000).toISOString()
     });
   }
 
@@ -815,6 +827,7 @@ export function createMockApi(options: MockApiOptions = {}) {
     const args = parseArgs(request.args);
     const env = parseEnv(request.env) ?? {};
     const enabled = request.enabled !== false;
+    const requireApproval = request.require_approval === true;
 
     if (!name) return error(422, "validation_error", "name 不能为空");
     if (!transport) return error(422, "validation_error", "transport 不支持");
@@ -829,6 +842,7 @@ export function createMockApi(options: MockApiOptions = {}) {
       ...(transport === "stdio" ? { command, args: args ?? [] } : { url }),
       env_keys: Object.keys(env),
       enabled,
+      require_approval: requireApproval,
       scope_all: request.scope_all !== false,
       scopes: [],
       status: connectorStatus(enabled),
@@ -862,6 +876,9 @@ export function createMockApi(options: MockApiOptions = {}) {
       next.enabled = request.enabled;
       next.status = connectorStatus(request.enabled);
       next.tool_count = request.enabled ? Math.max(next.tool_count, 1) : 0;
+    }
+    if (typeof request.require_approval === "boolean") {
+      next.require_approval = request.require_approval;
     }
     if (typeof request.scope_all === "boolean") {
       next.scope_all = request.scope_all;
@@ -1261,6 +1278,17 @@ export function createMockApi(options: MockApiOptions = {}) {
       if (!approval) return error(404, "not_found", "审批不存在");
       if (normalizedMethod === "POST" && action === "approve" && pathSegments.length === 3) {
         approval.status = "approved";
+        if (approval.tool.startsWith("mcp__") || approval.risk_rule === "connector_requires_approval") {
+          return {
+            status: 200,
+            body: {
+              approval_id: approval.approval_id,
+              status: "approved",
+              result: { content: "echo: hi" },
+              tool_status: "completed"
+            }
+          };
+        }
         return {
           status: 200,
           body: {

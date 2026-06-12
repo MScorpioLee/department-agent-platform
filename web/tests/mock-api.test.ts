@@ -141,12 +141,26 @@ describe("mock api", () => {
     const approvals = await api.handle("GET", ["approvals"], undefined, new URLSearchParams("status=pending"));
     expect(approvals.body).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ approval_id: "ap_mock_1", risk_rule: expect.stringContaining("rm -rf") })
+        expect.objectContaining({ approval_id: "ap_mock_1", risk_rule: expect.stringContaining("rm -rf") }),
+        expect.objectContaining({
+          approval_id: "ap_mock_connector",
+          tool: "mcp__github__create_issue",
+          risk_rule: "connector_requires_approval"
+        })
       ])
     );
 
     const approved = await api.handle("POST", ["approvals", "ap_mock_1", "approve"]);
     expect(approved.body).toMatchObject({ approval_id: "ap_mock_1", status: "approved", task_id: expect.any(String) });
+
+    const approvedConnector = await api.handle("POST", ["approvals", "ap_mock_connector", "approve"]);
+    expect(approvedConnector.body).toMatchObject({
+      approval_id: "ap_mock_connector",
+      status: "approved",
+      result: { content: "echo: hi" },
+      tool_status: "completed"
+    });
+    expect(approvedConnector.body).not.toHaveProperty("task_id");
 
     const grant = await api.handle("POST", ["machines", "m_mock_online", "grants"], {
       grantee_user_id: "u_mock_user",
@@ -313,7 +327,8 @@ describe("mock api", () => {
     expect(initial.status).toBe(200);
     expect(initial.body[0]).toMatchObject({
       status: "connected",
-      env_keys: expect.arrayContaining(["GITHUB_TOKEN"])
+      env_keys: expect.arrayContaining(["GITHUB_TOKEN"]),
+      require_approval: expect.any(Boolean)
     });
 
     const created = await api.handle("POST", ["admin", "connectors"], {
@@ -321,10 +336,11 @@ describe("mock api", () => {
       transport: "http",
       url: "https://mcp.example.test",
       env: { SLACK_TOKEN: "xoxb-live-secret" },
-      scope_all: true
+      scope_all: true,
+      require_approval: true
     });
     expect(created.status).toBe(200);
-    expect(created.body).toMatchObject({ env_keys: ["SLACK_TOKEN"], scope_all: true });
+    expect(created.body).toMatchObject({ env_keys: ["SLACK_TOKEN"], scope_all: true, require_approval: true });
     expect(JSON.stringify(created.body)).not.toContain("xoxb-live-secret");
 
     const scoped = await api.handle("PUT", ["admin", "connectors", created.body.id, "scope"], {
@@ -333,9 +349,15 @@ describe("mock api", () => {
     expect(scoped.body).toEqual({ user_ids: ["u_mock_user"] });
 
     const updated = await api.handle("PATCH", ["admin", "connectors", created.body.id], {
-      enabled: false
+      enabled: false,
+      require_approval: false
     });
-    expect(updated.body).toMatchObject({ enabled: false, status: "disabled", env_keys: ["SLACK_TOKEN"] });
+    expect(updated.body).toMatchObject({
+      enabled: false,
+      require_approval: false,
+      status: "disabled",
+      env_keys: ["SLACK_TOKEN"]
+    });
     expect(JSON.stringify(updated.body)).not.toContain("xoxb-live-secret");
   });
 

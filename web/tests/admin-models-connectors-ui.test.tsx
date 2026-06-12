@@ -196,6 +196,7 @@ describe("admin model and connector pages", () => {
           args: ["-y", "@modelcontextprotocol/server-github"],
           env_keys: ["GITHUB_TOKEN"],
           enabled: true,
+          require_approval: true,
           scope_all: false,
           scopes: ["u_alice"],
           status: "connected",
@@ -210,6 +211,7 @@ describe("admin model and connector pages", () => {
           args: ["server.js"],
           env_keys: [],
           enabled: true,
+          require_approval: false,
           scope_all: true,
           scopes: [],
           status: "error: spawn failed",
@@ -223,6 +225,7 @@ describe("admin model and connector pages", () => {
           url: "https://disabled.example.test",
           env_keys: [],
           enabled: false,
+          require_approval: false,
           scope_all: true,
           scopes: [],
           status: "disabled",
@@ -239,6 +242,7 @@ describe("admin model and connector pages", () => {
           args: ["-y", "@modelcontextprotocol/server-github"],
           env_keys: ["GITHUB_TOKEN"],
           enabled: true,
+          require_approval: true,
           scope_all: false,
           scopes: ["u_alice"],
           status: "connected",
@@ -252,6 +256,7 @@ describe("admin model and connector pages", () => {
           url: "https://mcp.example.test",
           env_keys: ["SLACK_TOKEN"],
           enabled: true,
+          require_approval: true,
           scope_all: true,
           scopes: [],
           status: "connected",
@@ -271,6 +276,7 @@ describe("admin model and connector pages", () => {
     expect(screen.getByText("异常")).toBeTruthy();
     expect(screen.getByText("已禁用")).toBeTruthy();
     expect(screen.getByText("GITHUB_TOKEN")).toBeTruthy();
+    expect(screen.getByText("需审批")).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("搜索连接器"), { target: { value: "broken" } });
     expect(screen.getByRole("cell", { name: "Broken MCP" })).toBeTruthy();
@@ -292,6 +298,7 @@ describe("admin model and connector pages", () => {
       target: { value: "ghp_live_secret" }
     });
     fireEvent.click(screen.getByLabelText("全员可用"));
+    fireEvent.click(screen.getByLabelText("每次调用需审批"));
     fireEvent.click(screen.getByRole("button", { name: "创建连接器" }));
 
     await waitFor(() => {
@@ -302,7 +309,8 @@ describe("admin model and connector pages", () => {
         args: ["-y", "@modelcontextprotocol/server-github"],
         env: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_live_secret" },
         scope_all: true,
-        enabled: true
+        enabled: true,
+        require_approval: true
       });
     });
     expect(screen.queryByText("ghp_live_secret")).toBeNull();

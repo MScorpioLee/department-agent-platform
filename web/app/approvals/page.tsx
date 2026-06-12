@@ -8,7 +8,7 @@ import { cn } from "@/lib/cn";
 import { isDesktopClient } from "@/lib/client-target";
 import { notifyDesktop } from "@/lib/desktop-bridge";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
-import type { Approval } from "@/lib/types";
+import type { Approval, ApproveApprovalResponse } from "@/lib/types";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败";
@@ -22,12 +22,43 @@ function JsonBlock({ value }: { value: unknown }) {
   );
 }
 
+function isConnectorApproval(approval: Approval) {
+  return approval.tool.startsWith("mcp__") || approval.risk_rule === "connector_requires_approval";
+}
+
+function approvalRiskLabel(approval: Approval) {
+  return isConnectorApproval(approval) ? "连接器调用审批" : approval.risk_rule;
+}
+
+function summarizeConnectorContent(content: unknown) {
+  const raw = typeof content === "string" ? content : JSON.stringify(content);
+  if (!raw) return "无返回内容";
+  return raw.length > 180 ? `${raw.slice(0, 180)}...` : raw;
+}
+
+function approvedNotice(response: ApproveApprovalResponse) {
+  if ("task_id" in response) {
+    return {
+      text: `已批准，task_id: ${response.task_id}`,
+      tone: "success" as const,
+      desktopBody: `task_id: ${response.task_id}`
+    };
+  }
+
+  const summary = summarizeConnectorContent(response.result?.content);
+  return {
+    text: `已批准，连接器执行 ${response.tool_status}: ${summary}`,
+    tone: response.tool_status === "failed" ? ("danger" as const) : ("success" as const),
+    desktopBody: `连接器执行 ${response.tool_status}: ${summary}`
+  };
+}
+
 export default function ApprovalsPage() {
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<{ text: string; tone: "success" | "danger" } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -49,13 +80,14 @@ export default function ApprovalsPage() {
 
   async function handleApprove(approvalId: string) {
     setActionId(approvalId);
-    setActionMessage(null);
+    setActionNotice(null);
     setError(null);
     try {
       const response = await approveApproval(approvalId);
-      setActionMessage(`已批准，task_id: ${response.task_id}`);
+      const notice = approvedNotice(response);
+      setActionNotice({ text: notice.text, tone: notice.tone });
       if (isDesktopClient()) {
-        void notifyDesktop("审批已批准", `task_id: ${response.task_id}`);
+        void notifyDesktop("审批已批准", notice.desktopBody);
       }
       await refresh();
     } catch (requestError) {
@@ -67,11 +99,11 @@ export default function ApprovalsPage() {
 
   async function handleReject(approvalId: string) {
     setActionId(approvalId);
-    setActionMessage(null);
+    setActionNotice(null);
     setError(null);
     try {
       const response = await rejectApproval(approvalId);
-      setActionMessage(`已拒绝，approval_id: ${response.approval_id}`);
+      setActionNotice({ text: `已拒绝，approval_id: ${response.approval_id}`, tone: "success" });
       if (isDesktopClient()) {
         void notifyDesktop("审批已拒绝", response.approval_id);
       }
@@ -106,9 +138,16 @@ export default function ApprovalsPage() {
         </div>
       ) : null}
 
-      {actionMessage ? (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-          {actionMessage}
+      {actionNotice ? (
+        <div
+          className={cn(
+            "rounded-md border px-4 py-3 text-sm font-medium",
+            actionNotice.tone === "danger"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-800"
+          )}
+        >
+          {actionNotice.text}
         </div>
       ) : null}
 
@@ -136,7 +175,7 @@ export default function ApprovalsPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-sm font-semibold text-slate-950">{approval.tool}</span>
                       <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800">
-                        {approval.risk_rule}
+                        {approvalRiskLabel(approval)}
                       </span>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
