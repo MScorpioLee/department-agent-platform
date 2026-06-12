@@ -84,3 +84,11 @@ def test_connector_admin_requires_admin(client):
     client.post("/api/users", headers=admin_h(client), json={"username": "u1", "password": "pass1234"})
     utok = client.post("/api/auth/login", json={"username": "u1", "password": "pass1234"}).json()["token"]
     assert client.get("/api/admin/connectors", headers={"Authorization": f"Bearer {utok}"}).status_code == 403
+
+
+def test_connector_presets_catalog(client):
+    rows = client.get("/api/admin/connector-presets", headers=admin_h(client)).json()
+    ids = {r["id"] for r in rows}
+    assert {"github", "filesystem", "custom"} <= ids
+    gh = next(r for r in rows if r["id"] == "github")
+    assert gh["transport"] == "stdio" and "GITHUB_PERSONAL_ACCESS_TOKEN" in gh["env_keys"]

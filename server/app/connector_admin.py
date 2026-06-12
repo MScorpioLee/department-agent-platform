@@ -47,6 +47,14 @@ def _out(row: Connector, secret_key: str, manager, scopes: list[str]) -> dict:
     }
 
 
+@router.get("/connector-presets")
+async def list_connector_presets() -> list[dict]:
+    """预设连接器目录(常用 MCP server),供"添加连接器"选择后自动填 command/args。"""
+    from .connector_providers import CONNECTOR_PRESETS
+
+    return CONNECTOR_PRESETS
+
+
 @router.get("/connectors")
 async def list_connectors(request: Request) -> list[dict]:
     sk = request.app.state.settings.secret_key
