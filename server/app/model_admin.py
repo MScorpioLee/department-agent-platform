@@ -51,12 +51,21 @@ async def load_gateway_from_db(sessionmaker, secret_key: str) -> ModelGateway:
         routes = (await session.execute(select(UserModelRoute))).scalars().all()
         backends = []
         for r in rows:
+            import json as _json
+
+            requires_user_auth = (r.auth_scope == "per_user")
+            extra_headers = None
             if r.auth_type == "oauth":
-                api_key = await _oauth_access_token(session, r, secret_key)
+                cfg = _json.loads(decrypt(r.oauth_enc, secret_key) or "{}") if r.oauth_enc else {}
+                extra_headers = cfg.get("extra_headers")
+                # per_user 的令牌在调用时按用户解析,快照里占位
+                api_key = "x" if requires_user_auth else await _oauth_access_token(session, r, secret_key)
             else:
                 api_key = (decrypt(r.api_key_enc, secret_key) if r.api_key_enc else "x") or "x"
-            backends.append(ModelBackend(id=r.id, base_url=r.base_url, model=r.model,
-                                         api_key=api_key, max_concurrency=r.max_concurrency))
+            backends.append(ModelBackend(
+                id=r.id, base_url=r.base_url, model=r.model, api_key=api_key,
+                max_concurrency=r.max_concurrency, runtime=r.runtime,
+                extra_headers=extra_headers, requires_user_auth=requires_user_auth))
     default_row = next((r for r in rows if r.is_default), rows[0] if rows else None)
     user_routes = {ur.user_id: ur.backend_id for ur in routes}
     return ModelGateway(backends, user_routes, default_row.id if default_row else None)
@@ -67,6 +76,46 @@ async def rebuild_gateway(app) -> None:
     app.state.gateway = await load_gateway_from_db(
         app.state.sessionmaker, app.state.settings.secret_key
     )
+
+
+async def resolve_backend_for_user(app, user_id: str):
+    """解析该用户实际要打的后端。per_user 后端用该用户自己的订阅令牌(临近过期则刷新)。"""
+    import json
+
+    from . import oauth as oauth_mod
+    from .models import ModelBackendRow, UserModelCredential, utcnow
+
+    backend = app.state.gateway.resolve(user_id)  # 路由决策 + 共享后端直接可用
+    if not getattr(backend, "requires_user_auth", False):
+        return backend
+    sk = app.state.settings.secret_key
+    async with app.state.sessionmaker() as session:
+        row = await session.get(ModelBackendRow, backend.id)
+        cred = await session.get(UserModelCredential, (user_id, backend.id))
+        if cred is None or not cred.oauth_enc:
+            from .model_gateway import ModelError
+
+            raise ModelError("oauth_login_required", "请先用你的订阅登录该 Provider(我的模型登录)")
+        app_cfg = json.loads(decrypt(row.oauth_enc, sk) or "{}") if (row and row.oauth_enc) else {}
+        tok_cfg = json.loads(decrypt(cred.oauth_enc, sk) or "{}")
+        merged = {**app_cfg, **tok_cfg}  # 端点来自后端配置,令牌来自用户凭据
+        if oauth_mod.token_expired(merged) and merged.get("refresh_token"):
+            try:
+                tok = await oauth_mod.refresh_tokens(merged, merged["refresh_token"])
+                tok_cfg.update(tok)
+                cred.oauth_enc = encrypt(json.dumps(tok_cfg), sk)
+                cred.updated_at = utcnow()
+                await session.commit()
+                merged.update(tok)
+            except Exception:
+                pass
+        token = merged.get("access_token") or "x"
+        extra = app_cfg.get("extra_headers")
+    from .model_gateway import ModelBackend
+
+    return ModelBackend(
+        id=backend.id, base_url=backend.base_url, model=backend.model, api_key=token,
+        max_concurrency=backend.max_concurrency, runtime=backend.runtime, extra_headers=extra)
 
 
 async def bootstrap_models(app, settings) -> None:
@@ -137,6 +186,8 @@ def _backend_out(r: ModelBackendRow, secret_key: str) -> dict:
         "base_url": r.base_url,
         "model": r.model,
         "auth_type": r.auth_type,
+        "auth_scope": r.auth_scope,
+        "runtime": r.runtime,
         "api_key": redact_secret(decrypt(r.api_key_enc, secret_key) if r.api_key_enc else ""),  # 永不回显明文
         "oauth": _oauth_status(r, secret_key),
         "max_concurrency": r.max_concurrency,
@@ -214,6 +265,8 @@ async def create_model(body: ModelBackendIn, request: Request) -> dict:
             base_url=body.base_url,
             model=body.model,
             auth_type=body.auth_type,
+            auth_scope=body.auth_scope,
+            runtime=body.runtime,
             api_key_enc=encrypt(body.api_key, sk) if (body.auth_type == "api_key" and body.api_key) else None,
             oauth_enc=oauth_enc,
             max_concurrency=body.max_concurrency,

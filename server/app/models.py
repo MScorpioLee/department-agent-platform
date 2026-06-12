@@ -184,10 +184,28 @@ class ModelBackendRow(Base):
     api_key_enc: Mapped[str | None] = mapped_column(Text)  # 加密存储,API 不回显
     auth_type: Mapped[str] = mapped_column(String(16), default="api_key")  # api_key | oauth
     oauth_enc: Mapped[str | None] = mapped_column(Text)  # 加密:OAuth 配置+令牌(JSON)
+    # OAuth 令牌归属:shared=后端共用一份(M14);per_user=每用户用自己的订阅登录(M15,Codex)
+    auth_scope: Mapped[str] = mapped_column(String(16), default="shared")
+    # 调用运行时:openai_chat=标准 /chat/completions;codex_responses=Codex 后端 Responses 适配
+    runtime: Mapped[str] = mapped_column(String(24), default="openai_chat")
     max_concurrency: Mapped[int] = mapped_column(default=2)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserModelCredential(Base):
+    """per-user 模型凭据(M15):每个用户对某 per_user 后端用自己的订阅 OAuth 登录,令牌各自隔离。
+
+    避免"账号合用"——一个人的 Codex/ChatGPT 订阅只用于他自己的会话。oauth_enc 加密存。
+    """
+
+    __tablename__ = "user_model_credentials"
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    backend_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    oauth_enc: Mapped[str | None] = mapped_column(Text)  # 加密:该用户的 OAuth 令牌(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class UserModelRoute(Base):

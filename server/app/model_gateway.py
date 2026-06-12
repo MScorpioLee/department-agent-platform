@@ -20,6 +20,9 @@ class ModelBackend:
     model: str
     api_key: str = "x"  # OAuth 代理通常忽略此值,填占位即可
     max_concurrency: int = 2
+    runtime: str = "openai_chat"  # openai_chat | codex_responses(订阅后端)
+    extra_headers: dict | None = None  # codex_responses 的私有账号头(部署配置)
+    requires_user_auth: bool = False  # per_user:令牌在调用时按用户解析,快照里是占位
 
 
 class ModelError(Exception):
@@ -57,7 +60,10 @@ class ModelGateway:
         timeout: float = 120.0,
         max_retries: int = 4,
     ) -> dict:
-        """调用上游 /chat/completions,返回解析后的 JSON。429/限流自动退避重试。"""
+        """调用上游,返回 chat/completions 形态 JSON。429/限流自动退避重试。
+
+        runtime=codex_responses 时经 Codex 适配器(Responses API)调用,对上层透明。
+        """
         payload: dict = {"model": backend.model, "messages": messages}
         if tools:
             payload["tools"] = tools
@@ -68,12 +74,26 @@ class ModelGateway:
         async with sem:
             for attempt in range(max_retries):
                 try:
+                    if backend.runtime == "codex_responses":
+                        from . import codex_adapter
+
+                        return await codex_adapter.codex_chat(
+                            backend.base_url, backend.api_key, payload,
+                            extra_headers=backend.extra_headers, timeout=timeout,
+                        )
                     async with httpx.AsyncClient(timeout=timeout) as http:
                         resp = await http.post(
                             f"{backend.base_url.rstrip('/')}/chat/completions",
                             headers={"Authorization": f"Bearer {backend.api_key}"},
                             json=payload,
                         )
+                except httpx.HTTPStatusError as exc:
+                    sc = exc.response.status_code
+                    if (sc == 429 or sc >= 500) and attempt < max_retries - 1:
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 2, 30.0)
+                        continue
+                    raise ModelError("upstream_error", f"Codex 后端返回 {sc}: {exc.response.text[:200]}") from exc
                 except httpx.HTTPError as exc:
                     raise ModelError("upstream_unreachable", f"无法连接模型后端: {exc}") from exc
 

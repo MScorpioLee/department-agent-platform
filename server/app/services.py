@@ -231,8 +231,10 @@ async def run_session_turn(app, session_id: str, user_content: str) -> dict:
         machine_roots = machine.allowed_roots or []
         machine_for_exec = machine
 
+    from .model_admin import resolve_backend_for_user
+
     try:
-        backend = gateway.resolve(user_id)
+        backend = await resolve_backend_for_user(app, user_id)
     except ModelError as exc:
         raise HTTPException(503, {"code": exc.code, "message": exc.message})
 

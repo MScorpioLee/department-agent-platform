@@ -72,6 +72,8 @@ class ModelBackendIn(BaseModel):
     model: str = Field(min_length=1)
     api_key: str = ""
     auth_type: str = Field(default="api_key", pattern="^(api_key|oauth)$")
+    auth_scope: str = Field(default="shared", pattern="^(shared|per_user)$")
+    runtime: str = Field(default="openai_chat", pattern="^(openai_chat|codex_responses)$")
     oauth: OAuthConfigIn | None = None  # auth_type=oauth 时填厂商发的应用配置
     max_concurrency: int = Field(default=2, ge=1, le=64)
     is_default: bool = False

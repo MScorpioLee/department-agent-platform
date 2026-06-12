@@ -114,9 +114,11 @@ async def v1_chat_completions(request: Request, user: User = Depends(_relay_user
     if body.get("stream"):
         raise HTTPException(400, {"code": "stream_unsupported", "message": "暂不支持 stream,请去掉该参数"})
 
+    from .model_admin import resolve_backend_for_user
+
     gateway = request.app.state.gateway
     try:
-        backend = gateway.resolve(user.id)
+        backend = await resolve_backend_for_user(request.app, user.id)
         completion = await gateway.chat(backend, messages, body.get("tools") or None)
     except ModelError as exc:
         raise HTTPException(503, {"code": exc.code, "message": exc.message})
