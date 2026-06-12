@@ -4,6 +4,27 @@
 非兼容的(如 Anthropic 原生)注明需经 LiteLLM/代理。base_url 不含末尾 /chat/completions。
 """
 
+async def list_models_from_endpoint(base_url: str, api_key: str = "") -> list[str]:
+    """调 OpenAI 兼容端点的 GET /models,返回真实可用模型 id(对标 Hermes 的"获取模型列表")。
+
+    同时充当连通性与 key 校验:401 = key 错,连接失败 = 地址不通。独立函数便于测试替换。
+    """
+    import httpx
+
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    async with httpx.AsyncClient(timeout=12) as client:
+        resp = await client.get(f"{base_url.rstrip('/')}/models", headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+    items = data.get("data") if isinstance(data, dict) else data
+    out = []
+    for it in items or []:
+        mid = it.get("id") if isinstance(it, dict) else None
+        if mid:
+            out.append(str(mid))
+    return sorted(out)
+
+
 PRESET_PROVIDERS = [
     {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com/v1",
      "models": ["deepseek-chat", "deepseek-reasoner"], "needs_key": True, "note": ""},

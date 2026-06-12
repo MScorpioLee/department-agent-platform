@@ -51,6 +51,11 @@ class GrantIn(BaseModel):
     expires_in_hours: int = Field(default=2, ge=1, le=720)
 
 
+class ModelDiscoverIn(BaseModel):
+    base_url: str = Field(min_length=1)
+    api_key: str = ""
+
+
 class ModelBackendIn(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     base_url: str = Field(min_length=1)

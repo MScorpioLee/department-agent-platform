@@ -97,3 +97,37 @@ def test_user_routes(client):
     # 删路由 → 回落默认
     client.put("/api/admin/model-routes", headers=h, json={"user_id": alice_id, "backend_id": None})
     assert client.app.state.gateway.resolve(alice_id).id == a
+
+
+def test_discover_models(client, monkeypatch):
+    """填 base_url+key 拉取端点真实模型列表(对标 Hermes);失败给可读错误。"""
+    from app import model_providers
+
+    async def fake_list(base_url, api_key=""):
+        assert base_url == "https://api.deepseek.com/v1" and api_key == "sk-x"
+        return ["deepseek-chat", "deepseek-reasoner"]
+
+    monkeypatch.setattr(model_providers, "list_models_from_endpoint", fake_list)
+    h = admin_h(client)
+    r = client.post("/api/admin/model-providers/discover", headers=h,
+                    json={"base_url": "https://api.deepseek.com/v1", "api_key": "sk-x"})
+    assert r.status_code == 200
+    assert r.json() == {"models": ["deepseek-chat", "deepseek-reasoner"], "count": 2}
+
+
+def test_discover_models_bad_key(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from app import model_providers
+
+    async def fail(base_url, api_key=""):
+        raise RuntimeError_with_response()
+
+    class RuntimeError_with_response(Exception):
+        response = SimpleNamespace(status_code=401)
+
+    monkeypatch.setattr(model_providers, "list_models_from_endpoint", fail)
+    r = client.post("/api/admin/model-providers/discover", headers=admin_h(client),
+                    json={"base_url": "http://x/v1", "api_key": "bad"})
+    assert r.status_code == 502
+    assert "Key 无效" in r.json()["error"]["message"]

@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from .auth import require_admin
 from .model_gateway import ModelBackend, ModelGateway
 from .models import iso_utc, ModelBackendRow, User, UserModelRoute, new_id
-from .schemas import ModelBackendIn, ModelBackendPatch, ModelRouteIn
+from .schemas import ModelBackendIn, ModelBackendPatch, ModelDiscoverIn, ModelRouteIn
 from .secret import decrypt, encrypt, redact_secret
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
@@ -108,6 +108,28 @@ async def list_providers() -> list[dict]:
     from .model_providers import PRESET_PROVIDERS
 
     return PRESET_PROVIDERS
+
+
+@router.post("/model-providers/discover")
+async def discover_models(body: ModelDiscoverIn) -> dict:
+    """拉取端点的真实模型列表(GET /models),同时校验地址与 key(对标 Hermes)。
+
+    key 仅本次探测使用,不落库;创建仍走 POST /models。
+    """
+    from . import model_providers
+
+    try:
+        models = await model_providers.list_models_from_endpoint(body.base_url, body.api_key)
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        if status in (401, 403):
+            msg = "API Key 无效或无权限"
+        elif status is not None:
+            msg = f"端点返回 {status}"
+        else:
+            msg = f"无法连接端点: {exc}"
+        raise HTTPException(502, {"code": "discover_failed", "message": msg})
+    return {"models": models, "count": len(models)}
 
 
 @router.get("/models")
