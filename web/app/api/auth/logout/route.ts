@@ -4,8 +4,8 @@ import { clearTokenCookie } from "@/lib/server-auth";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: NextRequest): Promise<Response> {
+export async function POST(request: NextRequest): Promise<Response> {
   const response = NextResponse.json({ ok: true });
-  clearTokenCookie(response);
+  clearTokenCookie(response, request);
   return response;
 }

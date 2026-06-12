@@ -9,21 +9,31 @@ export function getTokenFromRequest(request: NextRequest): string | null {
   return request.cookies.get(AUTH_COOKIE_NAME)?.value ?? null;
 }
 
-export function setTokenCookie(response: NextResponse, token: string) {
+function isSecureRequest(request: NextRequest): boolean {
+  // Secure cookie 跟随实际协议:https(或反代声明 https)才带 Secure。
+  // 固定按 NODE_ENV 会让局域网 http 部署的浏览器直接丢弃 cookie,登录后立即被弹回。
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  if (forwardedProto) {
+    return forwardedProto.split(",")[0]?.trim() === "https";
+  }
+  return request.nextUrl.protocol === "https:";
+}
+
+export function setTokenCookie(response: NextResponse, token: string, request: NextRequest) {
   response.cookies.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(request),
     path: "/",
     maxAge: COOKIE_MAX_AGE_SECONDS
   });
 }
 
-export function clearTokenCookie(response: NextResponse) {
+export function clearTokenCookie(response: NextResponse, request: NextRequest) {
   response.cookies.set(AUTH_COOKIE_NAME, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(request),
     path: "/",
     maxAge: 0
   });

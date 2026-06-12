@@ -40,7 +40,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       role: "user"
     };
     const response = NextResponse.json({ user });
-    setTokenCookie(response, `mock:${credentials.username}`);
+    setTokenCookie(response, `mock:${credentials.username}`, request);
     return response;
   }
 
@@ -71,6 +71,6 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   const response = NextResponse.json({ user: body.user });
-  setTokenCookie(response, body.token);
+  setTokenCookie(response, body.token, request);
   return response;
 }
