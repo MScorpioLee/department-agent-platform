@@ -1,19 +1,26 @@
 "use client";
 
-import { Loader2, Plug, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
-import React, { FormEvent, useCallback, useEffect, useState } from "react";
+import { Loader2, Plug, Plus, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminGuard } from "@/components/admin-guard";
 import {
   createConnector,
   deleteConnector,
+  listConnectorPresets,
   listConnectors,
   listUsers,
   putConnectorScope,
   updateConnector
 } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
-import type { Connector, ConnectorTransport, UpdateConnectorRequest, User } from "@/lib/types";
+import type {
+  Connector,
+  ConnectorPreset,
+  ConnectorTransport,
+  UpdateConnectorRequest,
+  User
+} from "@/lib/types";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败";
@@ -49,32 +56,77 @@ function scopeLabel(connector: Connector) {
   return connector.scope_all ? "全员" : `${connector.scopes.length} 个用户`;
 }
 
+function hasPlaceholder(value: string) {
+  return value.includes("/path/to/") || value.includes("postgresql://");
+}
+
 function AdminConnectorsContent() {
   const [connectors, setConnectors] = useState<Connector[]>([]);
+  const [presets, setPresets] = useState<ConnectorPreset[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showConnectorForm, setShowConnectorForm] = useState(false);
+  const [selectedPresetId, setSelectedPresetId] = useState("");
   const [name, setName] = useState("");
   const [transport, setTransport] = useState<ConnectorTransport>("stdio");
   const [command, setCommand] = useState("");
   const [argsText, setArgsText] = useState("");
   const [url, setUrl] = useState("");
   const [envText, setEnvText] = useState("");
+  const [presetEnvValues, setPresetEnvValues] = useState<Record<string, string>>({});
   const [enabled, setEnabled] = useState(true);
   const [scopeAll, setScopeAll] = useState(false);
   const [scopeConnectorId, setScopeConnectorId] = useState("");
   const [scopeUserId, setScopeUserId] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [transportFilter, setTransportFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const selectedPreset = useMemo(
+    () => presets.find((preset) => preset.id === selectedPresetId) ?? null,
+    [presets, selectedPresetId]
+  );
+
+  const stats = useMemo(
+    () => ({
+      total: connectors.length,
+      connected: connectors.filter((connector) => connector.status === "connected").length,
+      error: connectors.filter((connector) => connector.status.startsWith("error")).length,
+      disabled: connectors.filter((connector) => !connector.enabled).length
+    }),
+    [connectors]
+  );
+
+  const filteredConnectors = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return connectors
+      .filter((connector) => !query || connector.name.toLowerCase().includes(query))
+      .filter((connector) => {
+        if (statusFilter === "all") return true;
+        if (statusFilter === "error") return connector.status.startsWith("error");
+        if (statusFilter === "disabled") return !connector.enabled;
+        return connector.status === statusFilter;
+      })
+      .filter((connector) => transportFilter === "all" || connector.transport === transportFilter);
+  }, [connectors, search, statusFilter, transportFilter]);
+
   const refresh = useCallback(async () => {
     try {
-      const [nextConnectors, nextUsers] = await Promise.all([listConnectors(), listUsers()]);
+      const [nextConnectors, nextUsers, nextPresets] = await Promise.all([
+        listConnectors(),
+        listUsers(),
+        listConnectorPresets()
+      ]);
       setConnectors(nextConnectors);
       setUsers(nextUsers);
+      setPresets(nextPresets);
       setScopeConnectorId((current) => current || nextConnectors[0]?.id || "");
       setScopeUserId((current) => current || nextUsers[0]?.id || "");
+      setSelectedPresetId((current) => current || nextPresets[0]?.id || "");
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -87,34 +139,71 @@ function AdminConnectorsContent() {
     void refresh();
   }, [refresh]);
 
+  function applyPreset(presetId: string) {
+    setSelectedPresetId(presetId);
+    const preset = presets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setName(preset.id === "custom" ? "" : preset.name);
+    setTransport(preset.transport);
+    setCommand(preset.command ?? "");
+    setArgsText((preset.args ?? []).join("\n"));
+    setUrl(preset.url ?? "");
+    setEnvText("");
+    setPresetEnvValues(Object.fromEntries(preset.env_keys.map((key) => [key, ""])));
+  }
+
   function resetForm() {
     setEditingId(null);
+    setShowConnectorForm(false);
+    setSelectedPresetId(presets[0]?.id || "");
     setName("");
     setTransport("stdio");
     setCommand("");
     setArgsText("");
     setUrl("");
     setEnvText("");
+    setPresetEnvValues({});
     setEnabled(true);
     setScopeAll(false);
   }
 
+  function openConnectorForm() {
+    setEditingId(null);
+    setShowConnectorForm(true);
+    const presetId = selectedPresetId || presets[0]?.id || "";
+    if (presetId) {
+      applyPreset(presetId);
+    }
+    setMessage(null);
+  }
+
   function startEdit(connector: Connector) {
     setEditingId(connector.id);
+    setShowConnectorForm(true);
+    setSelectedPresetId("custom");
     setName(connector.name);
     setTransport(connector.transport);
     setCommand(connector.command ?? "");
     setArgsText((connector.args ?? []).join("\n"));
     setUrl(connector.url ?? "");
     setEnvText("");
+    setPresetEnvValues({});
     setEnabled(connector.enabled);
     setScopeAll(connector.scope_all);
     setMessage(null);
   }
 
+  function presetEnv() {
+    return Object.fromEntries(
+      Object.entries(presetEnvValues)
+        .map(([key, value]) => [key, value.trim()] as const)
+        .filter(([, value]) => value)
+    );
+  }
+
   async function submitConnector(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsedEnv = parseEnv(envText);
+    const parsedEnv = selectedPreset && selectedPreset.id !== "custom" ? presetEnv() : parseEnv(envText);
     const env = Object.keys(parsedEnv).length > 0 ? parsedEnv : undefined;
 
     setSubmitting(true);
@@ -196,6 +285,8 @@ function AdminConnectorsContent() {
     }
   }
 
+  const argsNeedReplacement = parseLines(argsText).some(hasPlaceholder);
+
   return (
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -203,14 +294,24 @@ function AdminConnectorsContent() {
           <h1 className="text-2xl font-semibold tracking-normal text-slate-950">连接器管理</h1>
           <p className="mt-1 text-sm text-slate-500">配置 MCP server、状态和授权作用域</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <RefreshCw aria-hidden="true" className={cn("h-4 w-4", loading && "animate-spin")} />
-          刷新
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openConnectorForm}
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-700"
+          >
+            <Plus aria-hidden="true" className="h-4 w-4" />
+            添加连接器
+          </button>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            <RefreshCw aria-hidden="true" className={cn("h-4 w-4", loading && "animate-spin")} />
+            刷新
+          </button>
+        </div>
       </div>
 
       <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -220,70 +321,126 @@ function AdminConnectorsContent() {
         </div>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ["总数", stats.total],
+          ["已连接", stats.connected],
+          ["异常", stats.error],
+          ["已禁用", stats.disabled]
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs font-medium text-slate-500">{label}</div>
+            <div className="mt-2 text-2xl font-semibold text-slate-950">{value}</div>
+          </div>
+        ))}
+      </div>
+
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{message}</div> : null}
 
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
         <aside className="space-y-5">
-          <form onSubmit={(event) => void submitConnector(event)} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
-              <Plug aria-hidden="true" className="h-5 w-5 text-slate-500" />
-              {editingId ? "编辑连接器" : "新建连接器"}
-            </div>
-            <div className="mt-4 space-y-3">
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">连接器名称</span>
-                <input required value={name} onChange={(event) => setName(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">传输</span>
-                <select value={transport} onChange={(event) => setTransport(event.target.value as ConnectorTransport)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200">
-                  <option value="stdio">stdio</option>
-                  <option value="http">http</option>
-                </select>
-              </label>
-              {transport === "stdio" ? (
-                <>
-                  <label className="block space-y-1.5">
-                    <span className="text-sm font-medium text-slate-700">Command</span>
-                    <input required value={command} onChange={(event) => setCommand(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-                  </label>
-                  <label className="block space-y-1.5">
-                    <span className="text-sm font-medium text-slate-700">Args</span>
-                    <textarea value={argsText} onChange={(event) => setArgsText(event.target.value)} rows={3} className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-                  </label>
-                </>
-              ) : (
+          {showConnectorForm ? (
+            <form onSubmit={(event) => void submitConnector(event)} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
+                <Plug aria-hidden="true" className="h-5 w-5 text-slate-500" />
+                {editingId ? "编辑连接器" : "添加连接器"}
+              </div>
+              <div className="mt-4 space-y-3">
+                {!editingId ? (
+                  <>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">连接器预设</span>
+                      <select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200">
+                        {presets.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedPreset?.note ? (
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        {selectedPreset.note}
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
                 <label className="block space-y-1.5">
-                  <span className="text-sm font-medium text-slate-700">URL</span>
-                  <input required value={url} onChange={(event) => setUrl(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                  <span className="text-sm font-medium text-slate-700">连接器名称</span>
+                  <input required value={name} onChange={(event) => setName(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
                 </label>
-              )}
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Env</span>
-                <textarea value={envText} onChange={(event) => setEnvText(event.target.value)} rows={3} placeholder={editingId ? "留空保持原 env" : "KEY=value"} className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                启用
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={scopeAll} onChange={(event) => setScopeAll(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                全员可用
-              </label>
-              <div className="flex gap-2">
-                <button type="submit" disabled={submitting} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
-                  {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
-                  {editingId ? "保存连接器" : "新建连接器"}
-                </button>
-                {editingId ? (
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">传输</span>
+                  <select value={transport} onChange={(event) => setTransport(event.target.value as ConnectorTransport)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200">
+                    <option value="stdio">stdio</option>
+                    <option value="http">http</option>
+                  </select>
+                </label>
+                {transport === "stdio" ? (
+                  <>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Command</span>
+                      <input required value={command} onChange={(event) => setCommand(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Args</span>
+                      <textarea value={argsText} onChange={(event) => setArgsText(event.target.value)} rows={3} className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                    </label>
+                    {argsNeedReplacement ? (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        请替换为真实路径/连接串
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <label className="block space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700">URL</span>
+                    <input required value={url} onChange={(event) => setUrl(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                  </label>
+                )}
+                {!editingId && selectedPreset && selectedPreset.id !== "custom" && selectedPreset.env_keys.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedPreset.env_keys.map((key) => (
+                      <label key={key} className="block space-y-1.5">
+                        <span className="text-sm font-medium text-slate-700">{key}</span>
+                        <input
+                          type="password"
+                          value={presetEnvValues[key] ?? ""}
+                          onChange={(event) =>
+                            setPresetEnvValues((current) => ({ ...current, [key]: event.target.value }))
+                          }
+                          className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <label className="block space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700">Env</span>
+                    <textarea value={envText} onChange={(event) => setEnvText(event.target.value)} rows={3} placeholder={editingId ? "留空保持原 env" : "KEY=value"} className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                  </label>
+                )}
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                  启用
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={scopeAll} onChange={(event) => setScopeAll(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                  全员可用
+                </label>
+                <div className="flex gap-2">
+                  <button type="submit" disabled={submitting} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
+                    {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
+                    {editingId ? "保存连接器" : "创建连接器"}
+                  </button>
                   <button type="button" onClick={resetForm} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
                     取消
                   </button>
-                ) : null}
+                </div>
               </div>
-            </div>
-          </form>
+            </form>
+          ) : null}
 
           <form onSubmit={(event) => void saveScope(event)} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-base font-semibold text-slate-950">作用域</h2>
@@ -317,8 +474,31 @@ function AdminConnectorsContent() {
         </aside>
 
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-4 py-3">
+          <div className="space-y-3 border-b border-slate-200 px-4 py-3">
             <h2 className="text-base font-semibold text-slate-950">连接器</h2>
+            <div className="grid gap-2 md:grid-cols-[1fr_160px_160px]">
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-slate-500">搜索连接器</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-slate-500">状态过滤</span>
+                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200">
+                  <option value="all">全部</option>
+                  <option value="connected">connected</option>
+                  <option value="error">error</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </label>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-slate-500">传输过滤</span>
+                <select value={transportFilter} onChange={(event) => setTransportFilter(event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200">
+                  <option value="all">全部</option>
+                  <option value="stdio">stdio</option>
+                  <option value="http">http</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -341,14 +521,14 @@ function AdminConnectorsContent() {
                       加载中
                     </td>
                   </tr>
-                ) : connectors.length === 0 ? (
+                ) : filteredConnectors.length === 0 ? (
                   <tr>
                     <td className="px-4 py-8 text-center text-slate-500" colSpan={8}>
                       暂无连接器
                     </td>
                   </tr>
                 ) : (
-                  connectors.map((connector) => (
+                  filteredConnectors.map((connector) => (
                     <tr key={connector.id} className="hover:bg-slate-50">
                       <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-950">{connector.name}</td>
                       <td className="whitespace-nowrap px-4 py-4 text-slate-600">{connector.transport}</td>

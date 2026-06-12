@@ -32,17 +32,17 @@ vi.mock("@/lib/api-client", () => ({
 
 describe("skills page", () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   test("regular users see authorized skills and can toggle them without admin controls", async () => {
     mocks.getMe.mockResolvedValue({ id: "u_alice", username: "alice", display_name: "Alice", role: "user" });
     mocks.listSkills
       .mockResolvedValueOnce([
-        { id: "skill_1", name: "Code Review", description: "检查代码改动", enabled: true }
+        { id: "skill_1", name: "Code Review", description: "检查代码改动", enabled: true, source: "builtin" }
       ])
       .mockResolvedValueOnce([
-        { id: "skill_1", name: "Code Review", description: "检查代码改动", enabled: false }
+        { id: "skill_1", name: "Code Review", description: "检查代码改动", enabled: false, source: "builtin" }
       ]);
     mocks.setSkillEnabled.mockResolvedValue({
       id: "skill_1",
@@ -54,6 +54,7 @@ describe("skills page", () => {
     render(<SkillsPage />);
 
     expect(await screen.findByText("Code Review")).toBeTruthy();
+    expect(screen.getByText("内置")).toBeTruthy();
     expect(screen.queryByText("Finance Private")).toBeNull();
     expect(screen.queryByText("技能管理")).toBeNull();
 
@@ -80,7 +81,8 @@ describe("skills page", () => {
       { id: "u_alice", username: "alice", display_name: "Alice", role: "user" }
     ]);
     mocks.listSkills.mockResolvedValue([
-      { id: "skill_1", name: "Code Review", description: "检查代码改动", enabled: true }
+      { id: "skill_1", name: "Code Review", description: "检查代码改动", enabled: true, source: "builtin" },
+      { id: "skill_2", name: "Imported Skill", description: "导入技能", enabled: false, source: "imported" }
     ]);
     mocks.listAdminSkills.mockResolvedValue([
       {
@@ -89,9 +91,21 @@ describe("skills page", () => {
         description: "检查代码改动",
         prompt: "Review this diff",
         source_ref: null,
+        source: "builtin",
         scope_all: true,
         scopes: [],
         created_at: "2026-06-11T00:00:00Z"
+      },
+      {
+        id: "skill_2",
+        name: "Imported Skill",
+        description: "导入技能",
+        prompt: "Imported prompt",
+        source_ref: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md",
+        source: "imported",
+        scope_all: false,
+        scopes: ["u_alice"],
+        created_at: "2026-06-11T00:01:00Z"
       }
     ]);
     mocks.createSkill.mockResolvedValue({ id: "skill_2" });
@@ -108,6 +122,8 @@ describe("skills page", () => {
 
     expect(await screen.findByText("技能管理")).toBeTruthy();
     expect(screen.getByText("从 GitHub 导入")).toBeTruthy();
+    expect(screen.getAllByText("内置").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("导入").length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByLabelText("技能名称"), { target: { value: "Deploy Helper" } });
     fireEvent.change(screen.getByLabelText("描述"), { target: { value: "发布前检查" } });

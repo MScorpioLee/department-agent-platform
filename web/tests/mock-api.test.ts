@@ -238,6 +238,16 @@ describe("mock api", () => {
   test("supports model admin mock flows without returning plaintext api keys", async () => {
     const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
 
+    const providers = await api.handle("GET", ["admin", "model-providers"]);
+    expect(providers.status).toBe(200);
+    expect(providers.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "deepseek", models: expect.arrayContaining(["deepseek-chat"]) }),
+        expect.objectContaining({ id: "ollama", needs_key: false }),
+        expect.objectContaining({ id: "custom", base_url: "" })
+      ])
+    );
+
     const initial = await api.handle("GET", ["admin", "models"]);
     expect(initial.status).toBe(200);
     expect(initial.body).toEqual(
@@ -284,6 +294,21 @@ describe("mock api", () => {
   test("supports connector mock flows without returning env values", async () => {
     const api = createMockApi({ now: () => Date.parse("2026-06-11T12:00:00Z") });
 
+    const presets = await api.handle("GET", ["admin", "connector-presets"]);
+    expect(presets.status).toBe(200);
+    expect(presets.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "github",
+          command: "npx",
+          args: expect.arrayContaining(["@modelcontextprotocol/server-github"]),
+          env_keys: expect.arrayContaining(["GITHUB_PERSONAL_ACCESS_TOKEN"])
+        }),
+        expect.objectContaining({ id: "filesystem", env_keys: [] }),
+        expect.objectContaining({ id: "custom" })
+      ])
+    );
+
     const initial = await api.handle("GET", ["admin", "connectors"]);
     expect(initial.status).toBe(200);
     expect(initial.body[0]).toMatchObject({
@@ -321,8 +346,8 @@ describe("mock api", () => {
     expect(userSkills.status).toBe(200);
     expect(userSkills.body).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: "skill_mock_review", enabled: true }),
-        expect.objectContaining({ id: "skill_mock_release", enabled: false })
+        expect.objectContaining({ id: "skill_mock_review", enabled: true, source: "builtin" }),
+        expect.objectContaining({ id: "skill_mock_release", enabled: false, source: "custom" })
       ])
     );
     expect(userSkills.body).not.toEqual(
@@ -352,6 +377,7 @@ describe("mock api", () => {
     expect(created.body).toMatchObject({
       id: expect.stringMatching(/^skill_mock_/),
       name: "Deploy Helper",
+      source: "custom",
       scope_all: true
     });
 
@@ -371,6 +397,7 @@ describe("mock api", () => {
     });
     expect(imported.body).toMatchObject({
       source_ref: "https://raw.githubusercontent.com/acme/repo/main/SKILL.md",
+      source: "imported",
       scope_all: true
     });
 

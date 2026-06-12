@@ -30,9 +30,15 @@ function scopeLabel(skill: AdminSkill, users: User[]) {
     .join(", ");
 }
 
-function sourceLabel(sourceRef?: string | null) {
-  if (!sourceRef) return "手动";
-  return sourceRef;
+function skillSourceLabel(source?: Skill["source"] | AdminSkill["source"]) {
+  if (source === "builtin") return "内置";
+  if (source === "imported") return "导入";
+  return "自定义";
+}
+
+function skillSourceTitle(skill: Pick<AdminSkill, "source" | "source_ref">) {
+  if (skill.source === "imported" && skill.source_ref) return skill.source_ref;
+  return skillSourceLabel(skill.source);
 }
 
 export default function SkillsPage() {
@@ -197,9 +203,10 @@ export default function SkillsPage() {
   const isAdmin = currentUser?.role === "admin";
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="agent-workspace-page space-y-5">
+      <div className="agent-page-hero flex flex-wrap items-center justify-between gap-3">
         <div>
+          <div className="agent-eyebrow">能力包</div>
           <h1 className="text-2xl font-semibold tracking-normal text-slate-950">技能</h1>
           <p className="mt-1 text-sm text-slate-500">启用后会进入对话提示词上下文</p>
         </div>
@@ -231,6 +238,9 @@ export default function SkillsPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-sm font-semibold text-slate-950">{skill.name}</h3>
+                    <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">
+                      {skillSourceLabel(skill.source)}
+                    </span>
                     <span className={cn("rounded-md border px-2 py-0.5 text-xs", skill.enabled ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500")}>
                       {skill.enabled ? "已启用" : "已停用"}
                     </span>
@@ -381,7 +391,16 @@ export default function SkillsPage() {
                         <tr key={skill.id} className="hover:bg-slate-50">
                           <td className="whitespace-nowrap px-4 py-4 font-medium text-slate-950">{skill.name}</td>
                           <td className="max-w-[260px] px-4 py-4 text-slate-600">{skill.description || "-"}</td>
-                          <td className="max-w-[260px] truncate px-4 py-4 font-mono text-xs text-slate-600" title={sourceLabel(skill.source_ref)}>{sourceLabel(skill.source_ref)}</td>
+                          <td className="max-w-[260px] px-4 py-4 text-xs text-slate-600" title={skillSourceTitle(skill)}>
+                            <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5">
+                              {skillSourceLabel(skill.source)}
+                            </span>
+                            {skill.source === "imported" && skill.source_ref ? (
+                              <div className="mt-1 truncate font-mono text-[11px] text-slate-400">
+                                {skill.source_ref}
+                              </div>
+                            ) : null}
+                          </td>
                           <td className="whitespace-nowrap px-4 py-4 text-slate-600">{scopeLabel(skill, users)}</td>
                           <td className="whitespace-nowrap px-4 py-4 text-slate-600">{new Date(skill.created_at).toLocaleString()}</td>
                           <td className="whitespace-nowrap px-4 py-4">

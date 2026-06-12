@@ -11,6 +11,7 @@ import type {
   AssignMachineOwnerResponse,
   CancelTaskResponse,
   Connector,
+  ConnectorPreset,
   CreateEnrollmentTokenRequest,
   CreateConnectorRequest,
   CreateSkillRequest,
@@ -26,6 +27,7 @@ import type {
   Machine,
   MachineGrant,
   ModelBackend,
+  ModelProvider,
   ModelRoute,
   RejectApprovalResponse,
   SendMessageResponse,
@@ -335,6 +337,10 @@ export function listModelBackends(): Promise<ModelBackend[]> {
   return apiFetch<ModelBackend[]>("/admin/models");
 }
 
+export function listModelProviders(): Promise<ModelProvider[]> {
+  return apiFetch<ModelProvider[]>("/admin/model-providers");
+}
+
 export function createModelBackend(request: CreateModelBackendRequest): Promise<ModelBackend> {
   return apiFetch<ModelBackend>("/admin/models", {
     method: "POST",
@@ -371,6 +377,10 @@ export function putModelRoute(userId: string, backendId: string | null): Promise
 
 export function listConnectors(): Promise<Connector[]> {
   return apiFetch<Connector[]>("/admin/connectors");
+}
+
+export function listConnectorPresets(): Promise<ConnectorPreset[]> {
+  return apiFetch<ConnectorPreset[]>("/admin/connector-presets");
 }
 
 export function createConnector(request: CreateConnectorRequest): Promise<Connector> {

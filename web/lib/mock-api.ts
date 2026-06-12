@@ -3,11 +3,13 @@ import type {
   Approval,
   ChatMessage,
   Connector,
+  ConnectorPreset,
   ConnectorTransport,
   CreateTaskRequest,
   Machine,
   MachineGrant,
   ModelBackend,
+  ModelProvider,
   ModelRoute,
   Skill,
   TaskOutput,
@@ -290,6 +292,40 @@ export function createMockApi(options: MockApiOptions = {}) {
     ["model_mock_openai", "sk-mock-openai-7890"]
   ]);
   const modelRoutes = new Map<string, string>([["u_mock_user", "model_mock_openai"]]);
+  const modelProviders: ModelProvider[] = [
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      base_url: "https://api.deepseek.com/v1",
+      models: ["deepseek-chat", "deepseek-reasoner"],
+      needs_key: true,
+      note: "官方 OpenAI 兼容接口"
+    },
+    {
+      id: "openai",
+      name: "OpenAI",
+      base_url: "https://api.openai.com/v1",
+      models: ["gpt-4.1", "gpt-4.1-mini"],
+      needs_key: true,
+      note: "官方 API Key"
+    },
+    {
+      id: "ollama",
+      name: "Ollama",
+      base_url: "http://127.0.0.1:11434/v1",
+      models: ["llama3.1", "qwen2.5-coder"],
+      needs_key: false,
+      note: "本地服务可不填 key"
+    },
+    {
+      id: "custom",
+      name: "自定义",
+      base_url: "",
+      models: [],
+      needs_key: true,
+      note: "手动填写兼容 OpenAI 的 base_url 和 model"
+    }
+  ];
   const connectors = new Map<string, Connector>([
     [
       "conn_mock_github",
@@ -329,6 +365,34 @@ export function createMockApi(options: MockApiOptions = {}) {
     ["conn_mock_github", { GITHUB_TOKEN: "ghp_mock_secret" }],
     ["conn_mock_docs", {}]
   ]);
+  const connectorPresets: ConnectorPreset[] = [
+    {
+      id: "github",
+      name: "GitHub",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-github"],
+      env_keys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+      note: "需 GitHub PAT"
+    },
+    {
+      id: "filesystem",
+      name: "Filesystem",
+      transport: "stdio",
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+      env_keys: [],
+      note: "请把 /path/to/dir 替换为允许访问的目录"
+    },
+    {
+      id: "custom",
+      name: "自定义",
+      transport: "stdio",
+      args: [],
+      env_keys: [],
+      note: "手动填写 command/args 或 HTTP URL"
+    }
+  ];
   const skills = new Map<string, AdminSkill>([
     [
       "skill_mock_review",
@@ -338,6 +402,7 @@ export function createMockApi(options: MockApiOptions = {}) {
         description: "检查代码改动并指出风险点",
         prompt: "Review the current code change and prioritize bugs, regressions, and missing tests.",
         source_ref: null,
+        source: "builtin",
         scope_all: true,
         scopes: [],
         created_at: new Date(now()).toISOString()
@@ -351,6 +416,7 @@ export function createMockApi(options: MockApiOptions = {}) {
         description: "整理变更摘要和发布检查项",
         prompt: "Prepare concise release notes and note verification coverage.",
         source_ref: null,
+        source: "custom",
         scope_all: false,
         scopes: ["u_mock_user"],
         created_at: new Date(now() - 60 * 1000).toISOString()
@@ -364,6 +430,7 @@ export function createMockApi(options: MockApiOptions = {}) {
         description: "仅用于验证未授权技能不会出现在普通列表",
         prompt: "Private finance workflow placeholder.",
         source_ref: null,
+        source: "custom",
         scope_all: false,
         scopes: ["u_private_only"],
         created_at: new Date(now() - 120 * 1000).toISOString()
@@ -643,7 +710,6 @@ export function createMockApi(options: MockApiOptions = {}) {
     if (!name) return error(422, "validation_error", "name 不能为空");
     if (!baseUrl) return error(422, "validation_error", "base_url 不能为空");
     if (!model) return error(422, "validation_error", "model 不能为空");
-    if (!apiKey) return error(422, "validation_error", "api_key 不能为空");
     if (!Number.isFinite(maxConcurrency) || maxConcurrency <= 0) {
       return error(422, "validation_error", "max_concurrency 必须大于 0");
     }
@@ -654,7 +720,7 @@ export function createMockApi(options: MockApiOptions = {}) {
       name,
       base_url: baseUrl,
       model,
-      api_key: maskSecret(apiKey),
+      api_key: apiKey ? maskSecret(apiKey) : "",
       max_concurrency: maxConcurrency,
       enabled: request.enabled !== false,
       is_default: isDefault,
@@ -837,7 +903,8 @@ export function createMockApi(options: MockApiOptions = {}) {
       id: skill.id,
       name: skill.name,
       description: skill.description,
-      enabled: skillEnabled.get(skill.id) ?? false
+      enabled: skillEnabled.get(skill.id) ?? false,
+      source: skill.source
     };
   }
 
@@ -866,6 +933,7 @@ export function createMockApi(options: MockApiOptions = {}) {
       description,
       prompt,
       source_ref: null,
+      source: "custom",
       scope_all: request.scope_all === true,
       scopes: [],
       created_at: new Date(now()).toISOString()
@@ -931,6 +999,7 @@ export function createMockApi(options: MockApiOptions = {}) {
       description: "从 GitHub raw URL 导入的 mock 技能",
       prompt: `Mock imported prompt from ${url}`,
       source_ref: url,
+      source: "imported",
       scope_all: request.scope_all === true,
       scopes: [],
       created_at: new Date(now()).toISOString()
@@ -1107,6 +1176,14 @@ export function createMockApi(options: MockApiOptions = {}) {
         if (normalizedMethod === "PUT" && pathSegments.length === 2) {
           return putModelRoute(body);
         }
+      }
+
+      if (adminResource === "model-providers" && normalizedMethod === "GET" && pathSegments.length === 2) {
+        return { status: 200, body: modelProviders };
+      }
+
+      if (adminResource === "connector-presets" && normalizedMethod === "GET" && pathSegments.length === 2) {
+        return { status: 200, body: connectorPresets };
       }
 
       if (adminResource === "connectors") {

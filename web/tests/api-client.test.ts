@@ -24,9 +24,11 @@ import {
   deleteSkill,
   importSkill,
   listConnectors,
+  listConnectorPresets,
   listMachines,
   listAdminSkills,
   listModelBackends,
+  listModelProviders,
   listModelRoutes,
   listSkills,
   getSessionMessages,
@@ -210,6 +212,53 @@ describe("api-client", () => {
         body: JSON.stringify({ user_id: "u_1", backend_id: null })
       })
     );
+  });
+
+  test("uses provider and connector preset directories through the proxy", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "deepseek",
+              name: "DeepSeek",
+              base_url: "https://api.deepseek.com/v1",
+              models: ["deepseek-chat"],
+              needs_key: true,
+              note: "官方 API"
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "github",
+              name: "GitHub",
+              transport: "stdio",
+              command: "npx",
+              args: ["-y", "@modelcontextprotocol/server-github"],
+              env_keys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+              note: "需 GitHub PAT"
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listModelProviders()).resolves.toEqual([
+      expect.objectContaining({ id: "deepseek", needs_key: true })
+    ]);
+    await expect(listConnectorPresets()).resolves.toEqual([
+      expect.objectContaining({ id: "github", env_keys: ["GITHUB_PERSONAL_ACCESS_TOKEN"] })
+    ]);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/admin/model-providers", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/proxy/admin/connector-presets", expect.any(Object));
   });
 
   test("uses admin connector endpoints through the proxy without echoing env values in reads", async () => {

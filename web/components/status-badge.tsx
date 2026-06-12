@@ -18,8 +18,9 @@ const taskClasses: Record<TaskStatus, string> = {
 export function MachineStatusBadge({ status }: { status: MachineStatus }) {
   return (
     <span
+      data-status={status}
       className={cn(
-        "inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium",
+        "agent-status-badge inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium",
         status === "online"
           ? "border-emerald-200 bg-emerald-50 text-emerald-700"
           : "border-slate-200 bg-slate-50 text-slate-500"
@@ -33,8 +34,9 @@ export function MachineStatusBadge({ status }: { status: MachineStatus }) {
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   return (
     <span
+      data-status={status}
       className={cn(
-        "inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium",
+        "agent-status-badge inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium",
         taskClasses[status]
       )}
     >

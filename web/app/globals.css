@@ -4,6 +4,28 @@
 
 :root {
   color-scheme: light;
+  --agent-bg: #fafafa;
+  --agent-panel: #ffffff;
+  --agent-panel-soft: #f5f5f5;
+  --agent-sidebar: #ffffff;
+  --agent-border: #ebebeb;
+  --agent-border-strong: #d4d4d4;
+  --agent-ink: #171717;
+  --agent-body: #4d4d4d;
+  --agent-muted: #888888;
+  --agent-primary: #171717;
+  --agent-primary-hover: #2f2f2f;
+  --agent-on-primary: #ffffff;
+  --agent-ring: rgba(23, 23, 23, 0.14);
+  --agent-success: #00d992;
+  --agent-success-soft: #e8fff6;
+  --agent-success-text: #047857;
+  --agent-warning-soft: #fff7e6;
+  --agent-warning-text: #925f00;
+  --agent-danger-soft: #fff1f1;
+  --agent-danger-text: #b42318;
+  --agent-code-bg: #171717;
+  --agent-code-panel: #252525;
 }
 
 * {
@@ -17,10 +39,11 @@ body {
 
 body {
   margin: 0;
-  background: #f6f7f9;
-  color: #111827;
+  background: var(--agent-bg);
+  color: var(--agent-ink);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "ss02";
 }
 
 button,
@@ -28,4 +51,290 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+[data-ui-mode="developer"] {
+  --agent-bg: #fafafa;
+  --agent-panel: #ffffff;
+  --agent-panel-soft: #f5f5f5;
+  --agent-sidebar: #ffffff;
+  --agent-border: #ebebeb;
+  --agent-border-strong: #c9c9c9;
+  --agent-ink: #171717;
+  --agent-body: #4d4d4d;
+  --agent-muted: #7a7a7a;
+  --agent-primary: #171717;
+  --agent-primary-hover: #2f2f2f;
+  --agent-on-primary: #ffffff;
+  --agent-ring: rgba(23, 23, 23, 0.14);
+  --agent-code-bg: #171717;
+  --agent-code-panel: #252525;
+}
+
+[data-ui-mode="user"] {
+  --agent-bg: #faf9f5;
+  --agent-panel: #fffdf8;
+  --agent-panel-soft: #f5f0e8;
+  --agent-sidebar: #f7f3ec;
+  --agent-border: #e6dfd8;
+  --agent-border-strong: #d5c9bb;
+  --agent-ink: #141413;
+  --agent-body: #3d3d3a;
+  --agent-muted: #6c6a64;
+  --agent-primary: #cc785c;
+  --agent-primary-hover: #a9583e;
+  --agent-on-primary: #ffffff;
+  --agent-ring: rgba(204, 120, 92, 0.18);
+  --agent-warning-soft: #fff3d9;
+  --agent-warning-text: #8a5a0a;
+  --agent-danger-soft: #fff0ec;
+  --agent-danger-text: #a94732;
+  --agent-code-bg: #181715;
+  --agent-code-panel: #252320;
+}
+
+[data-ui-mode] {
+  background: var(--agent-bg);
+  color: var(--agent-ink);
+}
+
+[data-ui-mode] .bg-slate-100 {
+  background-color: var(--agent-bg) !important;
+}
+
+[data-ui-mode] .bg-white {
+  background-color: var(--agent-panel) !important;
+}
+
+[data-ui-mode] .bg-slate-50,
+[data-ui-mode] .disabled\:bg-slate-100:disabled {
+  background-color: var(--agent-panel-soft) !important;
+}
+
+[data-ui-mode] .bg-slate-900 {
+  background-color: var(--agent-primary) !important;
+  color: var(--agent-on-primary) !important;
+}
+
+[data-ui-mode] .bg-slate-950 {
+  background-color: var(--agent-code-bg) !important;
+}
+
+[data-ui-mode] .border-slate-100,
+[data-ui-mode] .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: color-mix(in srgb, var(--agent-border), transparent 35%) !important;
+}
+
+[data-ui-mode] .border-slate-200,
+[data-ui-mode] .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--agent-border) !important;
+}
+
+[data-ui-mode] .border-slate-300 {
+  border-color: var(--agent-border-strong) !important;
+}
+
+[data-ui-mode] .text-slate-950,
+[data-ui-mode] .text-slate-900,
+[data-ui-mode] .text-slate-800 {
+  color: var(--agent-ink) !important;
+}
+
+[data-ui-mode] .text-slate-700,
+[data-ui-mode] .text-slate-600 {
+  color: var(--agent-body) !important;
+}
+
+[data-ui-mode] .text-slate-500,
+[data-ui-mode] .text-slate-400 {
+  color: var(--agent-muted) !important;
+}
+
+[data-ui-mode] .shadow-sm {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--agent-border), transparent 12%),
+    0 1px 1px rgba(0, 0, 0, 0.03),
+    0 8px 18px -14px rgba(0, 0, 0, 0.25) !important;
+}
+
+[data-ui-mode] input,
+[data-ui-mode] select,
+[data-ui-mode] textarea {
+  caret-color: var(--agent-primary);
+}
+
+[data-ui-mode] .focus\:border-slate-900:focus {
+  border-color: var(--agent-primary) !important;
+}
+
+[data-ui-mode] .focus\:ring-slate-200:focus {
+  --tw-ring-color: var(--agent-ring) !important;
+}
+
+[data-ui-mode] .hover\:bg-slate-50:hover,
+[data-ui-mode] .hover\:bg-slate-100:hover {
+  background-color: color-mix(in srgb, var(--agent-panel-soft), var(--agent-primary) 4%) !important;
+}
+
+[data-ui-mode] .hover\:bg-slate-700:hover {
+  background-color: var(--agent-primary-hover) !important;
+}
+
+[data-ui-mode] .bg-emerald-50 {
+  background-color: var(--agent-success-soft) !important;
+}
+
+[data-ui-mode] .border-emerald-200 {
+  border-color: color-mix(in srgb, var(--agent-success), white 45%) !important;
+}
+
+[data-ui-mode] .text-emerald-700,
+[data-ui-mode] .text-emerald-800 {
+  color: var(--agent-success-text) !important;
+}
+
+[data-ui-mode] .bg-amber-50 {
+  background-color: var(--agent-warning-soft) !important;
+}
+
+[data-ui-mode] .border-amber-200 {
+  border-color: color-mix(in srgb, #e8a55a, white 35%) !important;
+}
+
+[data-ui-mode] .text-amber-700,
+[data-ui-mode] .text-amber-800,
+[data-ui-mode] .text-amber-900,
+[data-ui-mode] .text-amber-950 {
+  color: var(--agent-warning-text) !important;
+}
+
+[data-ui-mode] .bg-red-50 {
+  background-color: var(--agent-danger-soft) !important;
+}
+
+[data-ui-mode] .border-red-200 {
+  border-color: color-mix(in srgb, #c64545, white 42%) !important;
+}
+
+[data-ui-mode] .text-red-600,
+[data-ui-mode] .text-red-700 {
+  color: var(--agent-danger-text) !important;
+}
+
+.app-shell-root {
+  min-height: 100vh;
+}
+
+.app-sidebar,
+.app-topbar {
+  background: color-mix(in srgb, var(--agent-sidebar), var(--agent-panel) 38%) !important;
+  border-color: var(--agent-border) !important;
+}
+
+.app-brand {
+  gap: 12px;
+}
+
+.app-brand-mark {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(var(--agent-primary), var(--agent-primary)) center / 10px 10px no-repeat,
+    var(--agent-panel);
+  box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--agent-panel-soft), transparent 20%);
+}
+
+[data-ui-mode="developer"] .app-brand-mark {
+  background:
+    linear-gradient(var(--agent-success), var(--agent-success)) center / 10px 10px no-repeat,
+    var(--agent-panel);
+}
+
+.app-nav-section-label {
+  letter-spacing: 0;
+  color: var(--agent-muted) !important;
+}
+
+.app-nav-link {
+  border: 1px solid transparent;
+  min-width: max-content;
+}
+
+.app-nav-link-active {
+  border-color: color-mix(in srgb, var(--agent-primary), transparent 18%);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+[data-ui-mode="user"] .app-nav-link-active {
+  background: var(--agent-panel) !important;
+  color: var(--agent-primary) !important;
+  border-color: var(--agent-border);
+}
+
+[data-ui-mode="user"] .app-nav-link-active svg {
+  color: var(--agent-primary);
+}
+
+[data-ui-mode="developer"] .app-nav-link-active {
+  background: var(--agent-primary) !important;
+  color: var(--agent-on-primary) !important;
+}
+
+.agent-page-hero {
+  border: 1px solid var(--agent-border);
+  border-radius: 12px;
+  background: var(--agent-panel);
+  padding: 20px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--agent-border), transparent 16%),
+    0 10px 24px -20px rgba(0, 0, 0, 0.35);
+}
+
+[data-ui-mode="user"] .agent-page-hero {
+  background:
+    linear-gradient(180deg, var(--agent-panel), color-mix(in srgb, var(--agent-panel-soft), var(--agent-panel) 48%));
+}
+
+.agent-eyebrow {
+  color: var(--agent-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+.agent-chat-bubble {
+  border-radius: 14px !important;
+}
+
+.agent-chat-bubble[data-role="assistant"] {
+  background: var(--agent-panel) !important;
+  border-color: var(--agent-border) !important;
+}
+
+.agent-chat-bubble[data-role="user"] {
+  background: var(--agent-primary) !important;
+  border-color: var(--agent-primary) !important;
+  color: var(--agent-on-primary) !important;
+}
+
+[data-ui-mode="user"] .agent-tool-card {
+  background: var(--agent-panel) !important;
+  border-color: var(--agent-border) !important;
+}
+
+[data-ui-mode="user"] .agent-code-card {
+  background: var(--agent-code-bg) !important;
+  border-color: color-mix(in srgb, var(--agent-code-panel), white 12%) !important;
+  color: #faf9f5 !important;
+}
+
+.agent-status-badge[data-status="online"],
+.agent-status-badge[data-status="completed"],
+.agent-status-badge[data-status="connected"] {
+  background: var(--agent-success-soft) !important;
+  border-color: color-mix(in srgb, var(--agent-success), white 35%) !important;
+  color: var(--agent-success-text) !important;
 }

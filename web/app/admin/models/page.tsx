@@ -1,20 +1,27 @@
 "use client";
 
-import { Bot, Loader2, RefreshCw, Trash2 } from "lucide-react";
-import React, { FormEvent, useCallback, useEffect, useState } from "react";
+import { Bot, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
+import React, { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminGuard } from "@/components/admin-guard";
 import {
   createModelBackend,
   deleteModelBackend,
   listModelBackends,
+  listModelProviders,
   listModelRoutes,
   listUsers,
   putModelRoute,
   updateModelBackend
 } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
-import type { ModelBackend, ModelRoute, UpdateModelBackendRequest, User } from "@/lib/types";
+import type {
+  ModelBackend,
+  ModelProvider,
+  ModelRoute,
+  UpdateModelBackendRequest,
+  User
+} from "@/lib/types";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "请求失败";
@@ -29,9 +36,12 @@ function routeLabel(routes: ModelRoute[], users: User[], backendId: string) {
 
 function AdminModelsContent() {
   const [backends, setBackends] = useState<ModelBackend[]>([]);
+  const [providers, setProviders] = useState<ModelProvider[]>([]);
   const [routes, setRoutes] = useState<ModelRoute[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showProviderForm, setShowProviderForm] = useState(false);
+  const [selectedProviderId, setSelectedProviderId] = useState("");
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
@@ -46,18 +56,26 @@ function AdminModelsContent() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const selectedProvider = useMemo(
+    () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
+    [providers, selectedProviderId]
+  );
+
   const refresh = useCallback(async () => {
     try {
-      const [nextBackends, nextRoutes, nextUsers] = await Promise.all([
+      const [nextBackends, nextRoutes, nextUsers, nextProviders] = await Promise.all([
         listModelBackends(),
         listModelRoutes(),
-        listUsers()
+        listUsers(),
+        listModelProviders()
       ]);
       setBackends(nextBackends);
       setRoutes(nextRoutes);
       setUsers(nextUsers);
+      setProviders(nextProviders);
       setRouteUserId((current) => current || nextUsers[0]?.id || "");
       setRouteBackendId((current) => (current === "" ? "" : current || nextBackends[0]?.id || ""));
+      setSelectedProviderId((current) => current || nextProviders[0]?.id || "");
       setError(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -70,8 +88,19 @@ function AdminModelsContent() {
     void refresh();
   }, [refresh]);
 
+  function applyProvider(providerId: string) {
+    setSelectedProviderId(providerId);
+    const provider = providers.find((item) => item.id === providerId);
+    if (!provider) return;
+    setName(provider.id === "custom" ? "" : provider.name);
+    setBaseUrl(provider.base_url);
+    setModel(provider.models[0] ?? "");
+    setApiKey("");
+  }
+
   function resetForm() {
     setEditingId(null);
+    setShowProviderForm(false);
     setName("");
     setBaseUrl("");
     setModel("");
@@ -79,10 +108,23 @@ function AdminModelsContent() {
     setMaxConcurrency("2");
     setEnabled(true);
     setIsDefault(false);
+    setSelectedProviderId(providers[0]?.id || "");
+  }
+
+  function openProviderForm() {
+    setEditingId(null);
+    setShowProviderForm(true);
+    const providerId = selectedProviderId || providers[0]?.id || "";
+    if (providerId) {
+      applyProvider(providerId);
+    }
+    setMessage(null);
   }
 
   function startEdit(backend: ModelBackend) {
     setEditingId(backend.id);
+    setShowProviderForm(true);
+    setSelectedProviderId("custom");
     setName(backend.name);
     setBaseUrl(backend.base_url);
     setModel(backend.model);
@@ -123,7 +165,7 @@ function AdminModelsContent() {
           max_concurrency: normalizedConcurrency,
           is_default: isDefault
         });
-        setMessage("后端已创建");
+        setMessage("Provider 已创建");
       }
       resetForm();
       await refresh();
@@ -190,14 +232,24 @@ function AdminModelsContent() {
           <h1 className="text-2xl font-semibold tracking-normal text-slate-950">模型管理</h1>
           <p className="mt-1 text-sm text-slate-500">管理 LLM 后端、默认模型和用户路由</p>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <RefreshCw aria-hidden="true" className={cn("h-4 w-4", loading && "animate-spin")} />
-          刷新
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openProviderForm}
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-700"
+          >
+            <Plus aria-hidden="true" className="h-4 w-4" />
+            添加 Provider
+          </button>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            <RefreshCw aria-hidden="true" className={cn("h-4 w-4", loading && "animate-spin")} />
+            刷新
+          </button>
+        </div>
       </div>
 
       {error ? <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -205,60 +257,86 @@ function AdminModelsContent() {
 
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
         <aside className="space-y-5">
-          <form onSubmit={(event) => void submitBackend(event)} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
-              <Bot aria-hidden="true" className="h-5 w-5 text-slate-500" />
-              {editingId ? "编辑后端" : "新建后端"}
-            </div>
-            <div className="mt-4 space-y-3">
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">名称</span>
-                <input required value={name} onChange={(event) => setName(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">Base URL</span>
-                <input required value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">模型</span>
-                <input required value={model} onChange={(event) => setModel(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">API Key</span>
-                <input
-                  required={!editingId}
-                  type="password"
-                  value={apiKey}
-                  placeholder={editingId ? "留空保持原 key" : ""}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
-                />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-sm font-medium text-slate-700">最大并发</span>
-                <input required min={1} type="number" value={maxConcurrency} onChange={(event) => setMaxConcurrency(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                启用
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                设为默认
-              </label>
-              <div className="flex gap-2">
-                <button type="submit" disabled={submitting} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
-                  {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
-                  {editingId ? "保存后端" : "创建后端"}
-                </button>
+          {showProviderForm ? (
+            <form onSubmit={(event) => void submitBackend(event)} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-base font-semibold text-slate-950">
+                <Bot aria-hidden="true" className="h-5 w-5 text-slate-500" />
+                {editingId ? "编辑后端" : "添加 Provider"}
+              </div>
+              <div className="mt-4 space-y-3">
+                {!editingId ? (
+                  <>
+                    <label className="block space-y-1.5">
+                      <span className="text-sm font-medium text-slate-700">Provider</span>
+                      <select value={selectedProviderId} onChange={(event) => applyProvider(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200">
+                        {providers.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {selectedProvider?.note ? (
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        {selectedProvider.note}
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">名称</span>
+                  <input required value={name} onChange={(event) => setName(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">Base URL</span>
+                  <input required value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">模型</span>
+                  <input required list="model-provider-candidates" value={model} onChange={(event) => setModel(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                  <datalist id="model-provider-candidates">
+                    {(selectedProvider?.models ?? []).map((candidate) => (
+                      <option key={candidate} value={candidate} />
+                    ))}
+                  </datalist>
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">API Key</span>
+                  <input
+                    required={!editingId && selectedProvider?.needs_key !== false}
+                    type="password"
+                    value={apiKey}
+                    placeholder={editingId ? "留空保持原 key" : selectedProvider?.needs_key === false ? "可留空" : ""}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-slate-900 focus:ring-2 focus:ring-slate-200"
+                  />
+                </label>
+                <label className="block space-y-1.5">
+                  <span className="text-sm font-medium text-slate-700">最大并发</span>
+                  <input required min={1} type="number" value={maxConcurrency} onChange={(event) => setMaxConcurrency(event.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-200" />
+                </label>
                 {editingId ? (
+                  <label className="flex items-center gap-2 text-sm text-slate-700">
+                    <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                    启用
+                  </label>
+                ) : null}
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={isDefault} onChange={(event) => setIsDefault(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
+                  设为默认
+                </label>
+                <div className="flex gap-2">
+                  <button type="submit" disabled={submitting} className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
+                    {submitting ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" /> : null}
+                    {editingId ? "保存后端" : "创建 Provider"}
+                  </button>
                   <button type="button" onClick={resetForm} className="inline-flex h-10 items-center justify-center rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
                     取消
                   </button>
-                ) : null}
+                </div>
               </div>
-            </div>
-          </form>
+            </form>
+          ) : null}
 
           <form onSubmit={(event) => void saveRoute(event)} className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-base font-semibold text-slate-950">用户路由</h2>

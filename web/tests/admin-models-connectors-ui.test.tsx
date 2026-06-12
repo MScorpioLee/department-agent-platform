@@ -11,8 +11,10 @@ const mocks = vi.hoisted(() => ({
   deleteConnector: vi.fn(),
   deleteModelBackend: vi.fn(),
   getMe: vi.fn(),
+  listConnectorPresets: vi.fn(),
   listConnectors: vi.fn(),
   listModelBackends: vi.fn(),
+  listModelProviders: vi.fn(),
   listModelRoutes: vi.fn(),
   listUsers: vi.fn(),
   putConnectorScope: vi.fn(),
@@ -27,8 +29,10 @@ vi.mock("@/lib/api-client", () => ({
   deleteConnector: mocks.deleteConnector,
   deleteModelBackend: mocks.deleteModelBackend,
   getMe: mocks.getMe,
+  listConnectorPresets: mocks.listConnectorPresets,
   listConnectors: mocks.listConnectors,
   listModelBackends: mocks.listModelBackends,
+  listModelProviders: mocks.listModelProviders,
   listModelRoutes: mocks.listModelRoutes,
   listUsers: mocks.listUsers,
   putConnectorScope: mocks.putConnectorScope,
@@ -39,7 +43,7 @@ vi.mock("@/lib/api-client", () => ({
 
 describe("admin model and connector pages", () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   test("admin creates, edits, defaults, and routes model backends without rendering plaintext keys", async () => {
@@ -47,6 +51,25 @@ describe("admin model and connector pages", () => {
     mocks.listUsers.mockResolvedValue([
       { id: "u_admin", username: "admin", display_name: "管理员", role: "admin" },
       { id: "u_alice", username: "alice", display_name: "Alice", role: "user" }
+    ]);
+    mocks.listModelProviders.mockResolvedValue([
+      {
+        id: "deepseek",
+        name: "DeepSeek",
+        base_url: "https://api.deepseek.com/v1",
+        models: ["deepseek-chat", "deepseek-reasoner"],
+        needs_key: true,
+        note: "官方 API"
+      },
+      {
+        id: "ollama",
+        name: "Ollama",
+        base_url: "http://127.0.0.1:11434/v1",
+        models: ["llama3.1"],
+        needs_key: false,
+        note: "本地模型"
+      },
+      { id: "custom", name: "自定义", base_url: "", models: [], needs_key: true, note: "" }
     ]);
     mocks.listModelRoutes.mockResolvedValue([{ user_id: "u_alice", backend_id: "model_1" }]);
     mocks.listModelBackends
@@ -96,19 +119,20 @@ describe("admin model and connector pages", () => {
     expect(await screen.findByText("模型管理")).toBeTruthy();
     expect(await screen.findByText("sk-…cdef")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "OpenAI" } });
-    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://api.openai.com/v1" } });
-    fireEvent.change(screen.getByLabelText("模型"), { target: { value: "gpt-4.1" } });
+    fireEvent.click(screen.getByRole("button", { name: "添加 Provider" }));
+    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "deepseek" } });
+    expect(screen.getByLabelText("Base URL")).toHaveProperty("value", "https://api.deepseek.com/v1");
+    expect(screen.getByLabelText("模型")).toHaveProperty("value", "deepseek-chat");
     fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "sk-live-secret" } });
     fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "3" } });
     fireEvent.click(screen.getByLabelText("设为默认"));
-    fireEvent.click(screen.getByRole("button", { name: "创建后端" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建 Provider" }));
 
     await waitFor(() => {
       expect(mocks.createModelBackend).toHaveBeenCalledWith({
-        name: "OpenAI",
-        base_url: "https://api.openai.com/v1",
-        model: "gpt-4.1",
+        name: "DeepSeek",
+        base_url: "https://api.deepseek.com/v1",
+        model: "deepseek-chat",
         api_key: "sk-live-secret",
         max_concurrency: 3,
         is_default: true
@@ -141,6 +165,27 @@ describe("admin model and connector pages", () => {
       { id: "u_admin", username: "admin", display_name: "管理员", role: "admin" },
       { id: "u_alice", username: "alice", display_name: "Alice", role: "user" }
     ]);
+    mocks.listConnectorPresets.mockResolvedValue([
+      {
+        id: "github",
+        name: "GitHub",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+        env_keys: ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+        note: "需 GitHub PAT"
+      },
+      {
+        id: "filesystem",
+        name: "Filesystem",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"],
+        env_keys: [],
+        note: "把占位路径替换为工作目录"
+      },
+      { id: "custom", name: "自定义", transport: "stdio", args: [], env_keys: [], note: "" }
+    ]);
     mocks.listConnectors
       .mockResolvedValueOnce([
         {
@@ -156,6 +201,33 @@ describe("admin model and connector pages", () => {
           status: "connected",
           tool_count: 8,
           created_at: "2026-06-11T00:00:00Z"
+        },
+        {
+          id: "conn_error",
+          name: "Broken MCP",
+          transport: "stdio",
+          command: "node",
+          args: ["server.js"],
+          env_keys: [],
+          enabled: true,
+          scope_all: true,
+          scopes: [],
+          status: "error: spawn failed",
+          tool_count: 0,
+          created_at: "2026-06-11T00:00:30Z"
+        },
+        {
+          id: "conn_disabled",
+          name: "Disabled HTTP",
+          transport: "http",
+          url: "https://disabled.example.test",
+          env_keys: [],
+          enabled: false,
+          scope_all: true,
+          scopes: [],
+          status: "disabled",
+          tool_count: 0,
+          created_at: "2026-06-11T00:00:45Z"
         }
       ])
       .mockResolvedValue([
@@ -194,26 +266,46 @@ describe("admin model and connector pages", () => {
 
     expect(await screen.findByText("连接器管理")).toBeTruthy();
     expect(screen.getByText("连接器会在服务端运行你提供的第三方程序，仅管理员可配置，请确认来源可信")).toBeTruthy();
+    expect(screen.getByText("总数")).toBeTruthy();
+    expect(screen.getByText("已连接")).toBeTruthy();
+    expect(screen.getByText("异常")).toBeTruthy();
+    expect(screen.getByText("已禁用")).toBeTruthy();
     expect(screen.getByText("GITHUB_TOKEN")).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("连接器名称"), { target: { value: "Slack MCP" } });
-    fireEvent.change(screen.getByLabelText("传输"), { target: { value: "http" } });
-    fireEvent.change(screen.getByLabelText("URL"), { target: { value: "https://mcp.example.test" } });
-    fireEvent.change(screen.getByLabelText("Env"), { target: { value: "SLACK_TOKEN=xoxb-live-secret" } });
+    fireEvent.change(screen.getByLabelText("搜索连接器"), { target: { value: "broken" } });
+    expect(screen.getByRole("cell", { name: "Broken MCP" })).toBeTruthy();
+    expect(screen.queryByRole("cell", { name: "GitHub MCP" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("搜索连接器"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("状态过滤"), { target: { value: "disabled" } });
+    expect(screen.getByRole("cell", { name: "Disabled HTTP" })).toBeTruthy();
+    expect(screen.queryByRole("cell", { name: "GitHub MCP" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("状态过滤"), { target: { value: "all" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "添加连接器" }));
+    fireEvent.change(screen.getByLabelText("连接器预设"), { target: { value: "github" } });
+    expect(screen.getByLabelText("Command")).toHaveProperty("value", "npx");
+    expect(screen.getByLabelText("Args")).toHaveProperty(
+      "value",
+      "-y\n@modelcontextprotocol/server-github"
+    );
+    fireEvent.change(screen.getByLabelText("GITHUB_PERSONAL_ACCESS_TOKEN"), {
+      target: { value: "ghp_live_secret" }
+    });
     fireEvent.click(screen.getByLabelText("全员可用"));
-    fireEvent.click(screen.getByRole("button", { name: "新建连接器" }));
+    fireEvent.click(screen.getByRole("button", { name: "创建连接器" }));
 
     await waitFor(() => {
       expect(mocks.createConnector).toHaveBeenCalledWith({
-        name: "Slack MCP",
-        transport: "http",
-        url: "https://mcp.example.test",
-        env: { SLACK_TOKEN: "xoxb-live-secret" },
+        name: "GitHub",
+        transport: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-github"],
+        env: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_live_secret" },
         scope_all: true,
         enabled: true
       });
     });
-    expect(screen.queryByText("xoxb-live-secret")).toBeNull();
+    expect(screen.queryByText("ghp_live_secret")).toBeNull();
 
     fireEvent.change(screen.getByLabelText("作用域连接器"), { target: { value: "conn_1" } });
     fireEvent.change(screen.getByLabelText("授权用户"), { target: { value: "u_alice" } });

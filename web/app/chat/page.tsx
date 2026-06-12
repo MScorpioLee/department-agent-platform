@@ -29,7 +29,7 @@ function getErrorMessage(error: unknown): string {
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
-    <pre className="max-h-56 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+    <pre className="agent-code-card max-h-56 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -53,7 +53,7 @@ function isApprovalResult(value: unknown): value is { needs_approval: true; appr
 
 function ToolCallPanel({ call }: { call: ToolCall }) {
   return (
-    <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+    <div className="agent-tool-card mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
       <div className="mb-2 flex items-center justify-between gap-3">
         <div className="font-mono text-sm font-semibold text-slate-950">{call.name}</div>
         <div className="font-mono text-xs text-slate-500">{call.id}</div>
@@ -68,7 +68,7 @@ function ToolResult({ message }: { message: ChatMessage }) {
   const approval = isApprovalResult(parsed) ? parsed : null;
 
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="agent-tool-card rounded-md border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="font-mono text-xs font-semibold uppercase text-slate-500">
           tool result {message.tool_call_id ? `· ${message.tool_call_id}` : ""}
@@ -96,7 +96,7 @@ function ToolResult({ message }: { message: ChatMessage }) {
         <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-slate-500">
           JSON
         </summary>
-        <pre className="max-h-56 overflow-auto border-t border-slate-200 bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+        <pre className="agent-code-card max-h-56 overflow-auto border-t border-slate-200 bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
           {parsed === null ? message.content : JSON.stringify(parsed, null, 2)}
         </pre>
       </details>
@@ -120,8 +120,9 @@ function ChatBubble({ message }: { message: ChatMessage }) {
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
+        data-role={isUser ? "user" : "assistant"}
         className={cn(
-          "max-w-3xl rounded-md border px-4 py-3 shadow-sm",
+          "agent-chat-bubble max-w-3xl rounded-md border px-4 py-3 shadow-sm",
           isUser
             ? "border-slate-900 bg-slate-900 text-white"
             : "border-slate-200 bg-white text-slate-900"
@@ -146,7 +147,7 @@ function ChatBubble({ message }: { message: ChatMessage }) {
 
 function StreamingToolPanel({ item }: { item: Extract<StreamingItem, { kind: "tool" }> }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+    <div className="agent-tool-card rounded-md border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 font-semibold text-slate-950">
           <TerminalSquare aria-hidden="true" className="h-4 w-4 text-slate-500" />
@@ -167,13 +168,13 @@ function StreamingToolPanel({ item }: { item: Extract<StreamingItem, { kind: "to
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <div>
           <div className="mb-1 text-xs font-semibold uppercase text-slate-500">stdout</div>
-          <pre className="min-h-24 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+          <pre className="agent-code-card min-h-24 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
             {item.stdout || " "}
           </pre>
         </div>
         <div>
           <div className="mb-1 text-xs font-semibold uppercase text-slate-500">stderr</div>
-          <pre className="min-h-24 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
+          <pre className="agent-code-card min-h-24 overflow-auto rounded-md bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-100">
             {item.stderr || " "}
           </pre>
         </div>
@@ -221,8 +222,9 @@ function StreamingItemView({ item }: { item: StreamingItem }) {
   return (
     <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
       <div
+        data-role={isUser ? "user" : "assistant"}
         className={cn(
-          "max-w-3xl rounded-md border px-4 py-3 shadow-sm",
+          "agent-chat-bubble max-w-3xl rounded-md border px-4 py-3 shadow-sm",
           isUser
             ? "border-slate-900 bg-slate-900 text-white"
             : "border-slate-200 bg-white text-slate-900"
@@ -358,9 +360,10 @@ export default function ChatPage() {
   }
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="agent-workspace-page space-y-5">
+      <div className="agent-page-hero flex flex-wrap items-center justify-between gap-3">
         <div>
+          <div className="agent-eyebrow">用户端工作台</div>
           <h1 className="text-2xl font-semibold tracking-normal text-slate-950">对话</h1>
           <p className="mt-1 text-sm text-slate-500">选择在线机器后发起模型会话并查看工具执行过程</p>
         </div>
@@ -447,7 +450,7 @@ export default function ChatPage() {
           </div>
         </aside>
 
-        <section className="min-h-[620px] rounded-md border border-slate-200 bg-white shadow-sm">
+        <section className="agent-chat-surface min-h-[620px] rounded-md border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>

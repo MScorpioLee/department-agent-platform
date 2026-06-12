@@ -34,11 +34,14 @@ export interface User {
   role: string;
 }
 
+export type SkillSource = "builtin" | "imported" | "custom";
+
 export interface Skill {
   id: string;
   name: string;
   description: string;
   enabled: boolean;
+  source?: SkillSource;
 }
 
 export interface AdminSkill {
@@ -47,6 +50,7 @@ export interface AdminSkill {
   description: string;
   prompt: string;
   source_ref?: string | null;
+  source?: SkillSource;
   scope_all: boolean;
   scopes: string[];
   created_at: string;
@@ -111,6 +115,15 @@ export interface ModelRoute {
   backend_id: string | null;
 }
 
+export interface ModelProvider {
+  id: string;
+  name: string;
+  base_url: string;
+  models: string[];
+  needs_key: boolean;
+  note?: string;
+}
+
 export type ConnectorTransport = "stdio" | "http";
 
 export interface Connector {
@@ -127,6 +140,17 @@ export interface Connector {
   status: string;
   tool_count: number;
   created_at: string;
+}
+
+export interface ConnectorPreset {
+  id: string;
+  name: string;
+  transport: ConnectorTransport;
+  command?: string;
+  args: string[];
+  url?: string;
+  env_keys: string[];
+  note?: string;
 }
 
 export interface CreateConnectorRequest {
