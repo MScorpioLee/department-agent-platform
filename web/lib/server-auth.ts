@@ -83,7 +83,8 @@ export function mockUserFromToken(token: string): User | null {
     id: "u_mock",
     username,
     display_name: username,
-    role: "admin"
+    role: "admin",
+    status: "active"
   };
 }
 

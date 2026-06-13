@@ -325,6 +325,74 @@ describe("mock api", () => {
     });
   });
 
+  test("supports self registration approval lifecycle in mock mode", async () => {
+    let now = Date.parse("2026-06-13T08:00:00Z");
+    const api = createMockApi({ now: () => now });
+
+    const registered = await api.handle("POST", ["register"], {
+      username: "pending-user",
+      password: "secret1",
+      display_name: "Pending User",
+      note: "需要项目访问"
+    });
+    expect(registered).toEqual({
+      status: 200,
+      body: {
+        status: "pending",
+        username: "pending-user",
+        message: "注册已提交,等待管理员审批,通过后即可登录"
+      }
+    });
+
+    const duplicate = await api.handle("POST", ["register"], {
+      username: "pending-user",
+      password: "secret1"
+    });
+    expect(duplicate).toEqual({
+      status: 409,
+      body: { error: { code: "user_exists", message: "用户名已存在或正在审批中" } }
+    });
+
+    const registrations = await api.handle("GET", ["admin", "registrations"]);
+    expect(registrations.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: expect.stringMatching(/^reg_mock_/),
+          username: "pending-user",
+          display_name: "Pending User",
+          note: "需要项目访问",
+          status: "pending"
+        })
+      ])
+    );
+
+    const registrationId = registrations.body.find((item: { username: string }) => item.username === "pending-user").id;
+    const approved = await api.handle("POST", ["admin", "registrations", registrationId, "approve"]);
+    expect(approved.body).toMatchObject({
+      username: "pending-user",
+      display_name: "Pending User",
+      role: "user",
+      status: "active"
+    });
+    expect((await api.handle("GET", ["users"])).body).toEqual(
+      expect.arrayContaining([expect.objectContaining({ username: "pending-user", status: "active" })])
+    );
+
+    now += 60_000;
+    const rejectedRegistration = await api.handle("POST", ["register"], {
+      username: "reject-me",
+      password: "secret1",
+      note: "临时申请"
+    });
+    expect(rejectedRegistration.status).toBe(200);
+    const beforeReject = await api.handle("GET", ["admin", "registrations"]);
+    const rejectId = beforeReject.body.find((item: { username: string }) => item.username === "reject-me").id;
+    expect((await api.handle("POST", ["admin", "registrations", rejectId, "reject"])).body).toEqual({
+      rejected: rejectId
+    });
+    expect((await api.handle("POST", ["register"], { username: "reject-me", password: "secret1" })).status).toBe(200);
+  });
+
   test("supports oauth model backends and per-user model login mock flows without returning secrets", async () => {
     const api = createMockApi({ now: () => Date.parse("2026-06-12T12:00:00Z") });
 

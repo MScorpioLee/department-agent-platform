@@ -34,7 +34,12 @@ export interface User {
   username: string;
   display_name: string;
   role: string;
+  status?: UserStatus;
+  note?: string | null;
+  created_at?: string;
 }
+
+export type UserStatus = "active" | "pending" | "rejected";
 
 export type SkillSource = "builtin" | "imported" | "custom";
 
@@ -305,6 +310,32 @@ export interface CreateUserRequest {
   password: string;
   display_name?: string;
   role: "user" | "admin";
+}
+
+export interface RegisterUserRequest {
+  username: string;
+  password: string;
+  display_name?: string;
+  note?: string;
+}
+
+export interface RegisterUserResponse {
+  status: "pending";
+  username: string;
+  message: string;
+}
+
+export interface Registration {
+  id: string;
+  username: string;
+  display_name: string;
+  note?: string | null;
+  status: "pending";
+  created_at: string;
+}
+
+export interface RejectRegistrationResponse {
+  rejected: string;
 }
 
 export interface CreateEnrollmentTokenRequest {

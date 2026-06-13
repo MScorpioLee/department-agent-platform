@@ -3,7 +3,6 @@
 import {
   AlertTriangle,
   Bot,
-  Check,
   ChevronDown,
   ChevronRight,
   Code2,
@@ -12,7 +11,9 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  MessageSquare,
   Play,
+  Plus,
   Send,
   Square,
   TerminalSquare,
@@ -40,7 +41,8 @@ import {
 type ApprovalStatus = "pending" | "allowed" | "denied";
 
 type ChatItem =
-  | { id: string; kind: "user" | "assistant"; content: string }
+  | { id: string; kind: "user"; content: string }
+  | { id: string; kind: "assistant"; content: string }
   | {
       id: string;
       kind: "approval";
@@ -59,6 +61,26 @@ type ChatItem =
       diff?: WriteDiff;
     };
 
+interface CoderSession {
+  id: string;
+  title: string;
+  updatedAt: string;
+  chatItems: ChatItem[];
+  agentMessages: AgentChatMessage[];
+}
+
+interface SessionStore {
+  sessions: CoderSession[];
+  activeSessionId: string;
+}
+
+const SESSION_STORAGE_KEY = "agent-coder.sessions.v1";
+const SYSTEM_MESSAGE: AgentChatMessage = {
+  role: "system",
+  content:
+    "你是桌面编码 Agent。只能通过工具访问当前工作区。写文件前优先读取现有文件。运行命令前等待用户审批。"
+};
+
 function getErrorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
     return String((error as { message?: unknown }).message);
@@ -68,6 +90,69 @@ function getErrorMessage(error: unknown): string {
 
 function makeId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function createCoderSession(): CoderSession {
+  return {
+    id: makeId("session"),
+    title: "新对话",
+    updatedAt: new Date().toISOString(),
+    chatItems: [],
+    agentMessages: [SYSTEM_MESSAGE]
+  };
+}
+
+function isChatItem(value: unknown): value is ChatItem {
+  return typeof value === "object" && value !== null && "kind" in value;
+}
+
+function isAgentMessage(value: unknown): value is AgentChatMessage {
+  return typeof value === "object" && value !== null && "role" in value;
+}
+
+function loadSessions(): CoderSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SESSION_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item): CoderSession | null => {
+        if (typeof item !== "object" || item === null) return null;
+        const record = item as Partial<CoderSession>;
+        if (typeof record.id !== "string" || typeof record.title !== "string") return null;
+        const chatItems = Array.isArray(record.chatItems) ? record.chatItems.filter(isChatItem) : [];
+        const agentMessages = Array.isArray(record.agentMessages)
+          ? record.agentMessages.filter(isAgentMessage)
+          : [SYSTEM_MESSAGE];
+        return {
+          id: record.id,
+          title: record.title || "新对话",
+          updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : new Date().toISOString(),
+          chatItems,
+          agentMessages: agentMessages.length > 0 ? agentMessages : [SYSTEM_MESSAGE]
+        };
+      })
+      .filter((item): item is CoderSession => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function createInitialSessionStore(): SessionStore {
+  const sessions = loadSessions();
+  const ensured = sessions.length > 0 ? sessions : [createCoderSession()];
+  return { sessions: ensured, activeSessionId: ensured[0].id };
+}
+
+function saveSessions(sessions: CoderSession[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessions));
+}
+
+function titleFromChat(chatItems: ChatItem[], fallback: string) {
+  const firstUser = chatItems.find((item): item is Extract<ChatItem, { kind: "user" }> => item.kind === "user");
+  if (!firstUser?.content.trim()) return fallback || "新对话";
+  return firstUser.content.trim().slice(0, 36);
 }
 
 function joinPath(parent: string, child: string) {
@@ -94,29 +179,58 @@ function statusClass(status: ToolStatus) {
 
 export default function DesktopAgentPage() {
   const desktopClient = isDesktopClient();
+  const [sessionStore, setSessionStore] = useState<SessionStore>(() => createInitialSessionStore());
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(desktopClient);
   const [treeLoading, setTreeLoading] = useState(false);
   const [childrenByPath, setChildrenByPath] = useState<Record<string, string[]>>({});
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set([""]));
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedDiff, setSelectedDiff] = useState<WriteDiff | null>(null);
   const [filePreview, setFilePreview] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [chatItems, setChatItems] = useState<ChatItem[]>([]);
-  const [agentMessages, setAgentMessages] = useState<AgentChatMessage[]>([
-    {
-      role: "system",
-      content:
-        "你是桌面编码 Agent。只能通过工具访问当前工作区。写文件前优先读取现有文件。运行命令前等待用户审批。"
-    }
-  ]);
+  const [agentMessages, setAgentMessages] = useState<AgentChatMessage[]>([SYSTEM_MESSAGE]);
   const [input, setInput] = useState("");
   const [autoApprove, setAutoApprove] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const approvalResolvers = useRef(new Map<string, (allowed: boolean) => void>());
   const stopRequestedRef = useRef(false);
+  const skipNextSessionPersistRef = useRef(true);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const { sessions, activeSessionId } = sessionStore;
+  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? sessions[0];
+
+  useEffect(() => {
+    const session = sessions.find((item) => item.id === activeSessionId);
+    if (!session) return;
+    skipNextSessionPersistRef.current = true;
+    setChatItems(session.chatItems);
+    setAgentMessages(session.agentMessages);
+    setSelectedDiff(null);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (skipNextSessionPersistRef.current) {
+      skipNextSessionPersistRef.current = false;
+      return;
+    }
+    setSessionStore((current) => {
+      const nextSessions = current.sessions.map((session) => {
+        if (session.id !== current.activeSessionId) return session;
+        return {
+          ...session,
+          title: titleFromChat(chatItems, session.title),
+          updatedAt: new Date().toISOString(),
+          chatItems,
+          agentMessages
+        };
+      });
+      saveSessions(nextSessions);
+      return { ...current, sessions: nextSessions };
+    });
+  }, [agentMessages, chatItems]);
 
   useEffect(() => {
     if (!desktopClient) return;
@@ -165,6 +279,22 @@ export default function DesktopAgentPage() {
   const rootEntries = childrenByPath[""] ?? [];
   const hasWorkspace = Boolean(workspace);
 
+  function handleNewSession() {
+    const session = createCoderSession();
+    setSessionStore((current) => {
+      const nextSessions = [session, ...current.sessions];
+      saveSessions(nextSessions);
+      return { sessions: nextSessions, activeSessionId: session.id };
+    });
+    setChatItems([]);
+    setAgentMessages([SYSTEM_MESSAGE]);
+    setSelectedDiff(null);
+  }
+
+  function handleSelectSession(sessionId: string) {
+    setSessionStore((current) => ({ ...current, activeSessionId: sessionId }));
+  }
+
   async function refreshDirectory(path: string) {
     setTreeLoading(true);
     try {
@@ -210,6 +340,7 @@ export default function DesktopAgentPage() {
 
   async function openFile(path: string) {
     setSelectedFile(path);
+    setSelectedDiff(null);
     setPreviewLoading(true);
     setError(null);
     try {
@@ -251,6 +382,9 @@ export default function DesktopAgentPage() {
       next[index] = nextTool;
       return next;
     });
+    if (event.type === "tool_result" && event.diff) {
+      setSelectedDiff(event.diff);
+    }
   }
 
   function requestCommandApproval(request: CommandApprovalRequest): Promise<boolean> {
@@ -350,99 +484,78 @@ export default function DesktopAgentPage() {
   }
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-            <Code2 aria-hidden="true" className="h-4 w-4 text-slate-500" />
-            桌面编码 Agent
-          </div>
-          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-500">
-            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
-              <Check aria-hidden="true" className="h-3.5 w-3.5" />
-              桌面登录已接入
-            </span>
-            <span className="truncate font-mono">{workspaceLoading ? "读取项目目录..." : workspace ?? "未选择项目"}</span>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => void handleOpenWorkspace()}
-          className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-700"
-        >
-          <FolderOpen aria-hidden="true" className="h-4 w-4" />
-          打开项目
-        </button>
-      </div>
-
+    <section className="flex h-full min-h-[calc(100vh-3rem)] flex-col bg-slate-100 p-3">
       {error ? (
-        <div className="flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div className="mb-3 flex items-start gap-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      {!hasWorkspace ? (
-        <div className="grid min-h-[520px] place-items-center rounded-md border border-dashed border-slate-300 bg-white p-8 text-center">
-          <div>
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-md bg-slate-100 text-slate-500">
-              <FolderOpen aria-hidden="true" className="h-6 w-6" />
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[280px_minmax(0,1fr)_380px]">
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-3 py-3">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+              <MessageSquare aria-hidden="true" className="h-4 w-4 text-slate-500" />
+              项目 / 会话
             </div>
-            <h2 className="mt-4 text-lg font-semibold text-slate-950">打开一个项目目录开始</h2>
-            <p className="mt-2 text-sm text-slate-500">Agent 的文件和命令工具会被 Rust 锁定在这个目录内。</p>
+            <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
+              <div className="truncate font-mono text-xs text-slate-500">
+                {workspaceLoading ? "读取项目目录..." : workspace ?? "未选择项目"}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleOpenWorkspace()}
+                className="mt-2 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-700"
+              >
+                <FolderOpen aria-hidden="true" className="h-4 w-4" />
+                打开项目
+              </button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="grid min-h-[calc(100vh-13rem)] gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="flex min-h-[520px] flex-col rounded-md border border-slate-200 bg-white shadow-sm">
-            <div className="flex h-11 items-center justify-between border-b border-slate-200 px-3">
-              <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <Folder aria-hidden="true" className="h-4 w-4 text-slate-500" />
-                文件
-              </div>
-              {treeLoading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-slate-400" /> : null}
-            </div>
-            <div className="min-h-0 flex-1 overflow-auto p-2">
-              {rootEntries.length === 0 ? (
-                <div className="px-2 py-6 text-sm text-slate-500">暂无文件</div>
-              ) : (
-                <FileTree
-                  entries={rootEntries}
-                  parentPath=""
-                  childrenByPath={childrenByPath}
-                  expandedPaths={expandedPaths}
-                  selectedFile={selectedFile}
-                  onToggleDirectory={(path) => void toggleDirectory(path)}
-                  onOpenFile={(path) => void openFile(path)}
-                />
-              )}
-            </div>
-            <div className="border-t border-slate-200">
-              <div className="flex h-10 items-center gap-2 px-3 text-sm font-semibold text-slate-950">
-                <File aria-hidden="true" className="h-4 w-4 text-slate-500" />
-                预览
-              </div>
-              <div className="max-h-56 overflow-auto border-t border-slate-100 bg-slate-950 p-3 text-xs text-slate-100">
-                {previewLoading ? (
-                  <div className="text-slate-400">读取中</div>
-                ) : selectedFile ? (
-                  <>
-                    <div className="mb-2 font-mono text-slate-400">{selectedFile}</div>
-                    <pre className="whitespace-pre-wrap break-words">{filePreview}</pre>
-                  </>
-                ) : (
-                  <div className="text-slate-400">选择文件查看内容</div>
-                )}
-              </div>
-            </div>
-          </aside>
+          <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+            <div className="text-xs font-semibold uppercase text-slate-400">Sessions</div>
+            <button
+              type="button"
+              onClick={handleNewSession}
+              className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+              新对话
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-2">
+            {sessions.map((session) => {
+              const active = session.id === activeSessionId;
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  aria-label={`会话 ${session.title}`}
+                  onClick={() => handleSelectSession(session.id)}
+                  className={cn(
+                    "mb-1 w-full rounded-md px-3 py-2 text-left text-sm transition",
+                    active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
+                  )}
+                >
+                  <div className="truncate font-medium">{session.title}</div>
+                  <div className={cn("mt-1 truncate text-xs", active ? "text-slate-300" : "text-slate-400")}>
+                    {session.updatedAt}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
 
-          <main className="flex min-h-[520px] min-w-0 flex-col rounded-md border border-slate-200 bg-white shadow-sm">
-            <div className="flex h-11 items-center justify-between border-b border-slate-200 px-4">
-              <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <Bot aria-hidden="true" className="h-4 w-4 text-slate-500" />
-                对话
-              </div>
+        <main className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-4">
+            <h1 className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+              <Bot aria-hidden="true" className="h-4 w-4 text-slate-500" />
+              对话
+            </h1>
+            <div className="flex items-center gap-3">
+              <span className="hidden max-w-[240px] truncate text-xs text-slate-400 sm:inline">{activeSession?.title}</span>
               <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
                 <input
                   type="checkbox"
@@ -453,69 +566,127 @@ export default function DesktopAgentPage() {
                 本会话自动允许命令
               </label>
             </div>
+          </div>
 
-            <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto bg-slate-50 p-4">
-              {chatItems.length === 0 ? (
-                <div className="grid h-full min-h-[300px] place-items-center text-center">
-                  <div>
-                    <TerminalSquare aria-hidden="true" className="mx-auto h-8 w-8 text-slate-400" />
-                    <div className="mt-3 text-sm font-semibold text-slate-700">等待你的任务</div>
+          <div ref={transcriptRef} className="min-h-0 flex-1 space-y-3 overflow-auto bg-slate-50 p-4">
+            {!hasWorkspace ? (
+              <div className="grid h-full min-h-[300px] place-items-center rounded-md border border-dashed border-slate-300 bg-white p-8 text-center">
+                <div>
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-md bg-slate-100 text-slate-500">
+                    <FolderOpen aria-hidden="true" className="h-6 w-6" />
                   </div>
+                  <h2 className="mt-4 text-lg font-semibold text-slate-950">打开一个项目目录开始</h2>
+                  <p className="mt-2 text-sm text-slate-500">Agent 的文件和命令工具会被 Rust 锁定在这个目录内。</p>
                 </div>
-              ) : (
-                chatItems.map((item) => (
-                  <ChatTimelineItem key={item.id} item={item} onResolveApproval={resolveApproval} />
-                ))
-              )}
-              {sending ? (
-                <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
-                  <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                  Agent Loop 运行中
-                </div>
-              ) : null}
-            </div>
-
-            <form onSubmit={(event) => void handleSend(event)} className="border-t border-slate-200 p-3">
-              <label htmlFor="desktop-agent-input" className="sr-only">
-                Agent 输入
-              </label>
-              <div className="flex gap-2">
-                <textarea
-                  id="desktop-agent-input"
-                  aria-label="Agent 输入"
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  disabled={sending}
-                  rows={2}
-                  className="min-h-12 flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100"
-                  placeholder="例如: 建个 hello.py 并运行"
-                />
-                {sending ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      stopRequestedRef.current = true;
-                    }}
-                    className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
-                    aria-label="中止本轮"
-                  >
-                    <Square aria-hidden="true" className="h-4 w-4" />
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!input.trim()}
-                    className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <Send aria-hidden="true" className="h-4 w-4" />
-                    发送
-                  </button>
-                )}
               </div>
-            </form>
-          </main>
-        </div>
-      )}
+            ) : chatItems.length === 0 ? (
+              <div className="grid h-full min-h-[300px] place-items-center text-center">
+                <div>
+                  <TerminalSquare aria-hidden="true" className="mx-auto h-8 w-8 text-slate-400" />
+                  <div className="mt-3 text-sm font-semibold text-slate-700">等待你的任务</div>
+                </div>
+              </div>
+            ) : (
+              chatItems.map((item) => (
+                <ChatTimelineItem
+                  key={item.id}
+                  item={item}
+                  onResolveApproval={resolveApproval}
+                  onSelectDiff={setSelectedDiff}
+                />
+              ))
+            )}
+            {sending ? (
+              <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
+                <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
+                Agent Loop 运行中
+              </div>
+            ) : null}
+          </div>
+
+          <form onSubmit={(event) => void handleSend(event)} className="shrink-0 border-t border-slate-200 p-3">
+            <label htmlFor="desktop-agent-input" className="sr-only">
+              Agent 输入
+            </label>
+            <div className="flex gap-2">
+              <textarea
+                id="desktop-agent-input"
+                aria-label="Agent 输入"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                disabled={sending || !hasWorkspace}
+                rows={2}
+                className="min-h-12 flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200 disabled:cursor-not-allowed disabled:bg-slate-100"
+                placeholder="例如: 建个 hello.py 并运行"
+              />
+              {sending ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopRequestedRef.current = true;
+                  }}
+                  className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-700 hover:bg-slate-50"
+                  aria-label="中止本轮"
+                >
+                  <Square aria-hidden="true" className="h-4 w-4" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim() || !hasWorkspace}
+                  className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Send aria-hidden="true" className="h-4 w-4" />
+                  发送
+                </button>
+              )}
+            </div>
+          </form>
+        </main>
+
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+              <FileDiff aria-hidden="true" className="h-4 w-4 text-slate-500" />
+              代码 / Diff
+            </div>
+            {treeLoading ? <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-slate-400" /> : null}
+          </div>
+          <div className="min-h-0 flex-[0.9] overflow-auto border-b border-slate-200 p-2">
+            {!hasWorkspace ? (
+              <div className="px-2 py-6 text-sm text-slate-500">打开项目后显示文件</div>
+            ) : rootEntries.length === 0 ? (
+              <div className="px-2 py-6 text-sm text-slate-500">暂无文件</div>
+            ) : (
+              <FileTree
+                entries={rootEntries}
+                parentPath=""
+                childrenByPath={childrenByPath}
+                expandedPaths={expandedPaths}
+                selectedFile={selectedFile}
+                onToggleDirectory={(path) => void toggleDirectory(path)}
+                onOpenFile={(path) => void openFile(path)}
+              />
+            )}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto bg-slate-950 p-3 text-xs text-slate-100">
+            {selectedDiff ? (
+              <div aria-label="右侧 diff 视图">
+                <DiffView diff={selectedDiff} />
+              </div>
+            ) : previewLoading ? (
+              <div className="text-slate-400">读取中</div>
+            ) : selectedFile ? (
+              <>
+                <div className="mb-2 font-mono text-slate-400">{selectedFile}</div>
+                <pre className="whitespace-pre-wrap break-words">{filePreview}</pre>
+              </>
+            ) : (
+              <div className="text-slate-400">选择文件查看内容</div>
+            )}
+          </div>
+        </aside>
+      </div>
     </section>
   );
 }
@@ -597,10 +768,12 @@ function FileTree({
 
 function ChatTimelineItem({
   item,
-  onResolveApproval
+  onResolveApproval,
+  onSelectDiff
 }: {
   item: ChatItem;
   onResolveApproval: (toolCallId: string, allowed: boolean) => void;
+  onSelectDiff: (diff: WriteDiff) => void;
 }) {
   if (item.kind === "user" || item.kind === "assistant") {
     const isUser = item.kind === "user";
@@ -680,7 +853,20 @@ function ChatTimelineItem({
         </span>
       </summary>
       <div className="space-y-3 border-t border-slate-100 p-3">
-        {toolItem.diff ? <DiffView diff={toolItem.diff} /> : null}
+        {toolItem.diff ? (
+          <div className="space-y-2">
+            <button
+              type="button"
+              aria-label={`查看 diff ${toolItem.diff.path}`}
+              onClick={() => onSelectDiff(toolItem.diff as WriteDiff)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <FileDiff aria-hidden="true" className="h-3.5 w-3.5" />
+              查看 diff
+            </button>
+            <DiffView diff={toolItem.diff} />
+          </div>
+        ) : null}
         {toolItem.output !== undefined ? <ToolOutput output={toolItem.output} /> : null}
       </div>
     </details>

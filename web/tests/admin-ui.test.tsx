@@ -9,14 +9,20 @@ const mocks = vi.hoisted(() => ({
   createEnrollmentToken: vi.fn(),
   createUser: vi.fn(),
   getMe: vi.fn(),
-  listUsers: vi.fn()
+  approveRegistration: vi.fn(),
+  listRegistrations: vi.fn(),
+  listUsers: vi.fn(),
+  rejectRegistration: vi.fn()
 }));
 
 vi.mock("@/lib/api-client", () => ({
+  approveRegistration: mocks.approveRegistration,
   createEnrollmentToken: mocks.createEnrollmentToken,
   createUser: mocks.createUser,
   getMe: mocks.getMe,
-  listUsers: mocks.listUsers
+  listRegistrations: mocks.listRegistrations,
+  listUsers: mocks.listUsers,
+  rejectRegistration: mocks.rejectRegistration
 }));
 
 vi.mock("@/lib/client-target", () => ({
@@ -30,6 +36,7 @@ describe("admin ui", () => {
 
   test("admin creates users from the users page", async () => {
     mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listRegistrations.mockResolvedValue([]);
     mocks.listUsers
       .mockResolvedValueOnce([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" }])
       .mockResolvedValueOnce([
@@ -54,6 +61,76 @@ describe("admin ui", () => {
         role: "user"
       });
       expect(screen.getByText("用户已创建")).toBeTruthy();
+    });
+  });
+
+  test("admin approves and rejects pending registrations from the users page", async () => {
+    mocks.getMe.mockResolvedValue({ id: "u_admin", username: "admin", display_name: "管理员", role: "admin" });
+    mocks.listUsers
+      .mockResolvedValueOnce([{ id: "u_admin", username: "admin", display_name: "管理员", role: "admin", status: "active" }])
+      .mockResolvedValueOnce([
+        { id: "u_admin", username: "admin", display_name: "管理员", role: "admin", status: "active" },
+        { id: "u_pending", username: "pending-user", display_name: "Pending User", role: "user", status: "active" }
+      ])
+      .mockResolvedValueOnce([
+        { id: "u_admin", username: "admin", display_name: "管理员", role: "admin", status: "active" },
+        { id: "u_pending", username: "pending-user", display_name: "Pending User", role: "user", status: "active" }
+      ]);
+    mocks.listRegistrations
+      .mockResolvedValueOnce([
+        {
+          id: "reg_1",
+          username: "pending-user",
+          display_name: "Pending User",
+          note: "需要项目访问",
+          status: "pending",
+          created_at: "2026-06-13T08:00:00Z"
+        },
+        {
+          id: "reg_2",
+          username: "reject-me",
+          display_name: "Reject Me",
+          note: "临时申请",
+          status: "pending",
+          created_at: "2026-06-13T08:01:00Z"
+        }
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "reg_2",
+          username: "reject-me",
+          display_name: "Reject Me",
+          note: "临时申请",
+          status: "pending",
+          created_at: "2026-06-13T08:01:00Z"
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    mocks.approveRegistration.mockResolvedValue({
+      id: "u_pending",
+      username: "pending-user",
+      display_name: "Pending User",
+      role: "user",
+      status: "active"
+    });
+    mocks.rejectRegistration.mockResolvedValue({ rejected: "reg_2" });
+
+    render(<AdminUsersPage />);
+
+    expect(await screen.findByText("待审批注册")).toBeTruthy();
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("需要项目访问")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "通过 pending-user" }));
+    await waitFor(() => {
+      expect(mocks.approveRegistration).toHaveBeenCalledWith("reg_1");
+      expect(screen.getByText("注册已通过")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "拒绝 reject-me" }));
+    await waitFor(() => {
+      expect(mocks.rejectRegistration).toHaveBeenCalledWith("reg_2");
+      expect(screen.getByText("注册已拒绝")).toBeTruthy();
     });
   });
 

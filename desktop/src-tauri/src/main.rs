@@ -270,6 +270,38 @@ async fn desktop_login(
     Ok(login_response.user)
 }
 
+/// 自助注册(无需 token):从 Rust 侧 POST /api/register,绕过 webview 的 CSP/CORS 限制。
+#[tauri::command(rename_all = "camelCase")]
+async fn desktop_register(
+    server_url: String,
+    username: String,
+    password: String,
+    display_name: Option<String>,
+    note: Option<String>
+) -> DesktopResult<Value> {
+    let url = api_url(&normalize_server_url(&server_url)?, "/register")?;
+    let mut payload = json!({ "username": username, "password": password });
+    if let Some(value) = display_name.filter(|v| !v.is_empty()) {
+        payload["display_name"] = json!(value);
+    }
+    if let Some(value) = note.filter(|v| !v.is_empty()) {
+        payload["note"] = json!(value);
+    }
+    let response = Client::new()
+        .post(url)
+        .header("Accept", "application/json")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|error| DesktopError::internal(format!("请求 Agent Server 失败: {error}")))?;
+    let status = response.status();
+    let body = read_response_body(response).await?;
+    if !status.is_success() {
+        return Err(DesktopError::http(status, &body));
+    }
+    Ok(body)
+}
+
 #[tauri::command]
 async fn desktop_get_me(app: AppHandle) -> DesktopResult<UserDto> {
     let (status, body) = send_authenticated_json(&app, Method::GET, "/auth/me", None).await?;
@@ -515,6 +547,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop_login,
+            desktop_register,
             desktop_get_me,
             desktop_logout,
             desktop_api_request,

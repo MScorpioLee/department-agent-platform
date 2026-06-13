@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createMockApi } from "@/lib/mock-api";
+import { getDefaultMockApi } from "@/lib/mock-api";
 import {
   agentApiUrl,
   getTokenFromRequest,
@@ -10,7 +10,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const mockApi = createMockApi();
+const mockApi = getDefaultMockApi();
 
 type RouteContext = {
   params: {

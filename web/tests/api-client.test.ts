@@ -9,6 +9,7 @@ import {
   getAuditToolCalls,
   getAuditUsage,
   approveApproval,
+  approveRegistration,
   assignMachineOwner,
   cancelTask,
   createConnector,
@@ -42,6 +43,7 @@ import {
   getSessionMessages,
   listApprovals,
   listMachineGrants,
+  listRegistrations,
   listUsers,
   login,
   logout,
@@ -49,6 +51,8 @@ import {
   putModelRoute,
   putSkillScope,
   rejectApproval,
+  rejectRegistration,
+  registerUser,
   revokeGrant,
   sendSessionMessage,
   setSkillEnabled,
@@ -690,6 +694,66 @@ describe("api-client", () => {
     );
   });
 
+  test("registers through the public route and preserves pending approval errors", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            status: "pending",
+            username: "new-user",
+            message: "注册已提交,等待管理员审批"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: { code: "pending_approval", message: "账号待管理员审批" }
+          }),
+          { status: 403, headers: { "content-type": "application/json" } }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      registerUser({
+        username: "new-user",
+        password: "secret1",
+        display_name: "New User",
+        note: "需要接入项目"
+      })
+    ).resolves.toEqual({
+      status: "pending",
+      username: "new-user",
+      message: "注册已提交,等待管理员审批"
+    });
+    await expect(login("pending", "secret1")).rejects.toMatchObject({
+      status: 403,
+      code: "pending_approval",
+      message: "账号待管理员审批"
+    } satisfies Partial<ApiClientError>);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/register",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          username: "new-user",
+          password: "secret1",
+          display_name: "New User",
+          note: "需要接入项目"
+        }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+  });
+
   test("gets the current user and logs out through upstream then auth routes", async () => {
     const fetchMock = vi
       .fn()
@@ -1063,6 +1127,64 @@ describe("api-client", () => {
       expect.objectContaining({ method: "DELETE" })
     );
     expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/proxy/users", expect.any(Object));
+  });
+
+  test("uses admin registration approval endpoints", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: "reg_1",
+              username: "pending-user",
+              display_name: "Pending User",
+              note: "申请说明",
+              status: "pending",
+              created_at: "2026-06-13T00:00:00Z"
+            }
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "u_pending",
+            username: "pending-user",
+            display_name: "Pending User",
+            role: "user",
+            status: "active"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ rejected: "reg_2" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listRegistrations()).resolves.toHaveLength(1);
+    await expect(approveRegistration("reg_1")).resolves.toMatchObject({
+      username: "pending-user",
+      status: "active"
+    });
+    await expect(rejectRegistration("reg_2")).resolves.toEqual({ rejected: "reg_2" });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/proxy/admin/registrations", expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/proxy/admin/registrations/reg_1/approve",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/proxy/admin/registrations/reg_2/reject",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 
   test("uses admin onboarding and task cancellation endpoints", async () => {

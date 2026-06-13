@@ -43,6 +43,10 @@ import type {
   ModelProvider,
   ModelRoute,
   RejectApprovalResponse,
+  RegisterUserRequest,
+  RegisterUserResponse,
+  Registration,
+  RejectRegistrationResponse,
   SendMessageResponse,
   Skill,
   TaskOutput,
@@ -59,6 +63,7 @@ import {
   desktopGetMe,
   desktopLogin,
   desktopLogout,
+  desktopRegister,
   type DesktopLoginOptions
 } from "@/lib/desktop-bridge";
 
@@ -101,6 +106,10 @@ function isDesktopCommandError(
   value: unknown
 ): value is { status?: number; code?: string; message?: string } {
   return typeof value === "object" && value !== null && "message" in value;
+}
+
+function normalizeServerUrl(serverUrl?: string) {
+  return (serverUrl?.trim() || "http://127.0.0.1:8700").replace(/\/+$/, "");
 }
 
 async function desktopCommand<T>(request: Promise<T>): Promise<T> {
@@ -209,6 +218,33 @@ export async function login(
     "/api/auth"
   );
   return response.user;
+}
+
+export async function registerUser(
+  request: RegisterUserRequest,
+  options: { serverUrl?: string } = {}
+): Promise<RegisterUserResponse> {
+  if (isDesktopClient()) {
+    // 桌面端经 Rust 命令请求,绕过 webview 的 CSP/CORS(与 login 一致),不走直连 fetch
+    return desktopCommand(
+      desktopRegister({
+        serverUrl: normalizeServerUrl(options.serverUrl),
+        username: request.username,
+        password: request.password,
+        displayName: request.display_name,
+        note: request.note
+      })
+    );
+  }
+
+  return apiFetch<RegisterUserResponse>(
+    "/register",
+    {
+      method: "POST",
+      body: JSON.stringify(request)
+    },
+    "/api"
+  );
 }
 
 export function getMe(): Promise<User> {
@@ -566,6 +602,23 @@ export function createUser(request: CreateUserRequest): Promise<User> {
     method: "POST",
     body: JSON.stringify(request)
   });
+}
+
+export function listRegistrations(): Promise<Registration[]> {
+  return apiFetch<Registration[]>("/admin/registrations");
+}
+
+export function approveRegistration(registrationId: string): Promise<User> {
+  return apiFetch<User>(`/admin/registrations/${encodeURIComponent(registrationId)}/approve`, {
+    method: "POST"
+  });
+}
+
+export function rejectRegistration(registrationId: string): Promise<RejectRegistrationResponse> {
+  return apiFetch<RejectRegistrationResponse>(
+    `/admin/registrations/${encodeURIComponent(registrationId)}/reject`,
+    { method: "POST" }
+  );
 }
 
 export function createEnrollmentToken(

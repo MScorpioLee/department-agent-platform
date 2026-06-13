@@ -22,7 +22,7 @@ import React from "react";
 import { useEffect, useState } from "react";
 
 import { getMe, logout } from "@/lib/api-client";
-import { isDesktopClient } from "@/lib/client-target";
+import { isCoderProfile, isDesktopClient } from "@/lib/client-target";
 import { cn } from "@/lib/cn";
 import type { User } from "@/lib/types";
 
@@ -72,6 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const normalizedPathname = normalizePathname(pathname);
   const isLoginPage = normalizedPathname === "/login";
   const desktopClient = isDesktopClient();
+  const coderProfile = isCoderProfile();
   const uiMode = uiModeForPathname(normalizedPathname);
   const [user, setUser] = useState<User | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(!isLoginPage);
@@ -111,6 +112,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [isLoginPage, pathname, router]);
 
+  useEffect(() => {
+    if (!coderProfile || isLoginPage || checkingAuth) return;
+    if (normalizedPathname !== "/desktop-agent") {
+      router.replace("/desktop-agent");
+    }
+  }, [checkingAuth, coderProfile, isLoginPage, normalizedPathname, router]);
+
   async function handleLogout() {
     setLoggingOut(true);
     try {
@@ -129,6 +137,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+    );
+  }
+
+  if (coderProfile) {
+    const shouldShowCoderWorkspace = !checkingAuth && normalizedPathname === "/desktop-agent";
+    return (
+      <div data-ui-mode="coder" className="min-h-screen bg-slate-950 text-slate-950">
+        <header className="flex h-12 items-center justify-between border-b border-slate-800 bg-slate-950 px-4 text-white">
+          <div className="inline-flex min-w-0 items-center gap-2">
+            <Code2 aria-hidden="true" className="h-4 w-4 text-slate-400" />
+            <span className="truncate text-sm font-semibold">Agent Coder</span>
+          </div>
+          <div className="flex min-w-0 items-center gap-3">
+            {user ? (
+              <div className="inline-flex min-w-0 items-center gap-2 text-sm text-slate-300">
+                <UserCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-500" />
+                <span className="truncate font-medium">{user.display_name || user.username}</span>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              disabled={loggingOut}
+              className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-3 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <LogOut aria-hidden="true" className="h-4 w-4" />
+              登出
+            </button>
+          </div>
+        </header>
+        <main className="h-[calc(100vh-3rem)] min-h-0 overflow-hidden bg-slate-100">
+          {shouldShowCoderWorkspace ? children : <div className="p-4 text-sm text-slate-500">加载中</div>}
+        </main>
+      </div>
     );
   }
 

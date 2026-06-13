@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { POST as loginRoute } from "@/app/api/auth/login/route";
+import { POST as registerRoute } from "@/app/api/register/route";
 import { GET as meRoute } from "@/app/api/auth/me/route";
 import { POST as logoutRoute } from "@/app/api/auth/logout/route";
 import { DELETE as proxyDelete } from "@/app/api/proxy/[...path]/route";
@@ -36,6 +37,49 @@ describe("auth route handlers", () => {
     });
     expect(response.headers.get("set-cookie")).toContain("agent_token=");
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+  });
+
+  test("mock register returns pending without setting a token", async () => {
+    process.env.MOCK_API = "1";
+
+    const response = await registerRoute(
+      request("http://localhost/api/register", {
+        method: "POST",
+        body: JSON.stringify({
+          username: "pending-user",
+          password: "secret1",
+          display_name: "Pending User",
+          note: "请审批"
+        }),
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "pending",
+      username: "pending-user",
+      message: "注册已提交,等待管理员审批,通过后即可登录"
+    });
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  test("mock pending account login returns pending_approval without a token", async () => {
+    process.env.MOCK_API = "1";
+
+    const response = await loginRoute(
+      request("http://localhost/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username: "pending", password: "secret" }),
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: "pending_approval", message: "账号待管理员审批,请等待通过后再登录" }
+    });
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   test("mock me returns the user from the httpOnly cookie and logout clears it", async () => {

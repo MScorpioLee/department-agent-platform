@@ -19,6 +19,7 @@ import type {
   ModelProvider,
   ModelRoute,
   PersonalApiKey,
+  Registration,
   Skill,
   TaskOutput,
   TaskRecord,
@@ -59,6 +60,10 @@ interface InternalSession {
   status: string;
   title: string;
   messages: ChatMessage[];
+}
+
+interface InternalRegistration extends Registration {
+  password: string;
 }
 
 function maskSecret(value: string) {
@@ -262,9 +267,49 @@ export function createMockApi(options: MockApiOptions = {}) {
   const approvals = new Map<string, Approval>();
   const grants = new Map<string, MachineGrant[]>();
   const users: User[] = [
-    { id: "u_mock_admin", username: "admin", display_name: "管理员", role: "admin" },
-    { id: "u_mock_user", username: "alice", display_name: "Alice", role: "user" }
+    {
+      id: "u_mock_admin",
+      username: "admin",
+      display_name: "管理员",
+      role: "admin",
+      status: "active",
+      created_at: new Date(now() - 6 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: "u_mock_user",
+      username: "alice",
+      display_name: "Alice",
+      role: "user",
+      status: "active",
+      created_at: new Date(now() - 5 * 60 * 60 * 1000).toISOString()
+    }
   ];
+  const registrations = new Map<string, InternalRegistration>([
+    [
+      "reg_mock_seed_1",
+      {
+        id: "reg_mock_seed_1",
+        username: "pending",
+        password: "secret1",
+        display_name: "Pending User",
+        note: "想试用桌面 Agent",
+        status: "pending",
+        created_at: new Date(now() - 15 * 60 * 1000).toISOString()
+      }
+    ],
+    [
+      "reg_mock_seed_2",
+      {
+        id: "reg_mock_seed_2",
+        username: "beta-user",
+        password: "secret1",
+        display_name: "Beta User",
+        note: "需要连接 win-notebook",
+        status: "pending",
+        created_at: new Date(now() - 9 * 60 * 1000).toISOString()
+      }
+    ]
+  ]);
   const modelBackends = new Map<string, ModelBackend>([
     [
       "model_mock_deepseek",
@@ -545,6 +590,7 @@ export function createMockApi(options: MockApiOptions = {}) {
   let sessionCounter = 0;
   let grantCounter = 0;
   let userCounter = 2;
+  let registrationCounter = registrations.size;
   let enrollmentCounter = 0;
   let wsTicketCounter = 0;
   let modelCounter = 2;
@@ -710,6 +756,89 @@ export function createMockApi(options: MockApiOptions = {}) {
     return { status: 200, body: { task_id: taskId, status: "queued" } };
   }
 
+  function publicRegistration(registration: InternalRegistration): Registration {
+    return {
+      id: registration.id,
+      username: registration.username,
+      display_name: registration.display_name,
+      note: registration.note,
+      status: registration.status,
+      created_at: registration.created_at
+    };
+  }
+
+  function registrationUsernameTaken(username: string) {
+    return (
+      users.some((user) => user.username === username) ||
+      Array.from(registrations.values()).some((registration) => registration.username === username)
+    );
+  }
+
+  function createRegistration(body: unknown): MockApiResponse {
+    const request = asRecord(body);
+    if (!request) return error(422, "validation_error", "请求体必须是对象");
+    const username = typeof request.username === "string" ? request.username.trim() : "";
+    const password = typeof request.password === "string" ? request.password : "";
+    const displayName = typeof request.display_name === "string" ? request.display_name.trim() : "";
+    const note = typeof request.note === "string" ? request.note.trim() : "";
+
+    if (!username) return error(422, "validation_error", "username 不能为空");
+    if (password.length < 6) return error(422, "validation_error", "password 最少 6 位");
+    if (registrationUsernameTaken(username)) {
+      return error(409, "user_exists", "用户名已存在或正在审批中");
+    }
+
+    const registration: InternalRegistration = {
+      id: `reg_mock_${++registrationCounter}`,
+      username,
+      password,
+      display_name: displayName || username,
+      note,
+      status: "pending",
+      created_at: new Date(now()).toISOString()
+    };
+    registrations.set(registration.id, registration);
+    return {
+      status: 200,
+      body: {
+        status: "pending",
+        username,
+        message: "注册已提交,等待管理员审批,通过后即可登录"
+      }
+    };
+  }
+
+  function listRegistrations(): MockApiResponse {
+    return {
+      status: 200,
+      body: Array.from(registrations.values()).map(publicRegistration)
+    };
+  }
+
+  function approveRegistration(registrationId: string): MockApiResponse {
+    const registration = registrations.get(registrationId);
+    if (!registration) return error(404, "not_found", "注册申请不存在");
+    registrations.delete(registrationId);
+
+    const user: User = {
+      id: `u_mock_${++userCounter}`,
+      username: registration.username,
+      display_name: registration.display_name || registration.username,
+      role: "user",
+      status: "active",
+      note: registration.note,
+      created_at: new Date(now()).toISOString()
+    };
+    users.push(user);
+    return { status: 200, body: user };
+  }
+
+  function rejectRegistration(registrationId: string): MockApiResponse {
+    if (!registrations.has(registrationId)) return error(404, "not_found", "注册申请不存在");
+    registrations.delete(registrationId);
+    return { status: 200, body: { rejected: registrationId } };
+  }
+
   function createUser(body: unknown): MockApiResponse {
     const request = asRecord(body);
     if (!request) return error(422, "validation_error", "请求体必须是对象");
@@ -720,7 +849,7 @@ export function createMockApi(options: MockApiOptions = {}) {
 
     if (!username) return error(422, "validation_error", "username 不能为空");
     if (password.length < 6) return error(422, "validation_error", "password 最少 6 位");
-    if (users.some((user) => user.username === username)) {
+    if (registrationUsernameTaken(username)) {
       return error(409, "user_exists", "用户名已存在");
     }
 
@@ -728,7 +857,9 @@ export function createMockApi(options: MockApiOptions = {}) {
       id: `u_mock_${++userCounter}`,
       username,
       display_name: displayName || username,
-      role
+      role,
+      status: "active",
+      created_at: new Date(now()).toISOString()
     };
     users.push(user);
     return { status: 200, body: user };
@@ -1468,6 +1599,10 @@ export function createMockApi(options: MockApiOptions = {}) {
       return { status: 200, body: machines() };
     }
 
+    if (resource === "register" && normalizedMethod === "POST" && pathSegments.length === 1) {
+      return createRegistration(body);
+    }
+
     if (resource === "users" && normalizedMethod === "GET" && pathSegments.length === 1) {
       return { status: 200, body: users };
     }
@@ -1535,6 +1670,18 @@ export function createMockApi(options: MockApiOptions = {}) {
       const adminResource = pathSegments[1];
       const itemId = pathSegments[2];
       const action = pathSegments[3];
+
+      if (adminResource === "registrations") {
+        if (normalizedMethod === "GET" && pathSegments.length === 2) {
+          return listRegistrations();
+        }
+        if (normalizedMethod === "POST" && action === "approve" && pathSegments.length === 4) {
+          return approveRegistration(itemId);
+        }
+        if (normalizedMethod === "POST" && action === "reject" && pathSegments.length === 4) {
+          return rejectRegistration(itemId);
+        }
+      }
 
       if (adminResource === "models") {
         if (normalizedMethod === "GET" && pathSegments.length === 2) {
@@ -1842,4 +1989,11 @@ export function createMockApi(options: MockApiOptions = {}) {
   }
 
   return { handle };
+}
+
+let defaultMockApi: ReturnType<typeof createMockApi> | null = null;
+
+export function getDefaultMockApi() {
+  defaultMockApi ??= createMockApi();
+  return defaultMockApi;
 }

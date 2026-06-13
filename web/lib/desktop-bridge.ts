@@ -1,4 +1,4 @@
-import type { User } from "@/lib/types";
+import type { RegisterUserResponse, User } from "@/lib/types";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -41,6 +41,24 @@ export async function desktopLogin(
     serverUrl: options.serverUrl ?? "",
     username,
     password
+  });
+}
+
+export interface DesktopRegisterArgs {
+  serverUrl: string;
+  username: string;
+  password: string;
+  displayName?: string;
+  note?: string;
+}
+
+export async function desktopRegister(args: DesktopRegisterArgs): Promise<RegisterUserResponse> {
+  return invokeDesktop<RegisterUserResponse>("desktop_register", {
+    serverUrl: args.serverUrl,
+    username: args.username,
+    password: args.password,
+    displayName: args.displayName ?? "",
+    note: args.note ?? ""
   });
 }
 

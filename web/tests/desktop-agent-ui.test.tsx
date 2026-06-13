@@ -30,6 +30,7 @@ vi.mock("@/lib/desktop-agent", () => ({
 describe("desktop coding agent ui", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     mocks.desktop = true;
   });
 
@@ -86,6 +87,9 @@ describe("desktop coding agent ui", () => {
 
     render(<DesktopAgentPage />);
 
+    expect(screen.getByText("项目 / 会话")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "对话" })).toBeTruthy();
+    expect(screen.getByText("代码 / Diff")).toBeTruthy();
     expect(await screen.findByText("打开一个项目目录开始")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "打开项目" }));
 
@@ -103,10 +107,53 @@ describe("desktop coding agent ui", () => {
 
     await waitFor(() => {
       expect(screen.getAllByText("hello.py").length).toBeGreaterThan(0);
-      expect(screen.getByText("+ print('hello')")).toBeTruthy();
+      expect(screen.getAllByText("+ print('hello')").length).toBeGreaterThan(0);
       expect(screen.getAllByText(/hello/).length).toBeGreaterThan(0);
       expect(screen.getAllByText("完成").length).toBeGreaterThan(0);
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "查看 diff hello.py" }));
+    expect(screen.getByLabelText("右侧 diff 视图").textContent).toContain("hello.py");
+
+    const stored = JSON.parse(window.localStorage.getItem("agent-coder.sessions.v1") ?? "[]");
+    expect(stored[0].title).toBe("建个 hello.py 并运行");
+    expect(stored[0].chatItems.some((item: { kind?: string; content?: string }) => item.content === "建个 hello.py 并运行")).toBe(
+      true
+    );
+  });
+
+  test("switches between locally persisted coding sessions", async () => {
+    window.localStorage.setItem(
+      "agent-coder.sessions.v1",
+      JSON.stringify([
+        {
+          id: "s_one",
+          title: "修复 README",
+          updatedAt: "2026-06-13T08:00:00.000Z",
+          chatItems: [{ id: "u1", kind: "user", content: "修复 README" }],
+          agentMessages: [{ role: "system", content: "system" }, { role: "user", content: "修复 README" }]
+        },
+        {
+          id: "s_two",
+          title: "新增测试",
+          updatedAt: "2026-06-13T08:01:00.000Z",
+          chatItems: [{ id: "u2", kind: "user", content: "新增测试" }],
+          agentMessages: [{ role: "system", content: "system" }, { role: "user", content: "新增测试" }]
+        }
+      ])
+    );
+    mocks.getAgentWorkspace.mockResolvedValue("/tmp/project");
+    mocks.listAgentFiles.mockResolvedValue([]);
+
+    render(<DesktopAgentPage />);
+
+    expect((await screen.findAllByText("修复 README")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "会话 新增测试" }));
+    expect(screen.getAllByText("新增测试").length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "新对话" }));
+    expect(screen.getAllByText("新对话").length).toBeGreaterThan(0);
+    expect(screen.getByText("等待你的任务")).toBeTruthy();
   });
 
   test("can reject a command approval without running it", async () => {

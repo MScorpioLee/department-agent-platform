@@ -33,6 +33,13 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   if (process.env.MOCK_API === "1") {
+    if (credentials.username === "pending") {
+      return NextResponse.json(
+        { error: { code: "pending_approval", message: "账号待管理员审批,请等待通过后再登录" } },
+        { status: 403 }
+      );
+    }
+
     const user: User = {
       id: "u_mock",
       username: credentials.username,
