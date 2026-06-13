@@ -5,6 +5,7 @@ import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { POST as registerRoute } from "@/app/api/register/route";
 import { GET as meRoute } from "@/app/api/auth/me/route";
 import { POST as logoutRoute } from "@/app/api/auth/logout/route";
+import { GET as setupStatusRoute } from "@/app/api/auth/setup-status/route";
 import { DELETE as proxyDelete } from "@/app/api/proxy/[...path]/route";
 import { GET as proxyGet } from "@/app/api/proxy/[...path]/route";
 import { PATCH as proxyPatch } from "@/app/api/proxy/[...path]/route";
@@ -18,6 +19,7 @@ describe("auth route handlers", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     delete process.env.MOCK_API;
+    delete process.env.MOCK_NEEDS_SETUP;
     delete process.env.AGENT_API_BASE;
   });
 
@@ -60,6 +62,52 @@ describe("auth route handlers", () => {
       status: "pending",
       username: "pending-user",
       message: "注册已提交,等待管理员审批,通过后即可登录"
+    });
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  test("mock setup status defaults to non-bootstrap mode", async () => {
+    process.env.MOCK_API = "1";
+
+    const response = await setupStatusRoute(request("http://localhost/api/auth/setup-status"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      needs_setup: false,
+      allow_registration: true
+    });
+  });
+
+  test("mock setup status can preview bootstrap registration without setting a token", async () => {
+    process.env.MOCK_API = "1";
+    process.env.MOCK_NEEDS_SETUP = "1";
+
+    const status = await setupStatusRoute(request("http://localhost/api/auth/setup-status"));
+    expect(status.status).toBe(200);
+    await expect(status.json()).resolves.toEqual({
+      needs_setup: true,
+      allow_registration: true
+    });
+
+    const response = await registerRoute(
+      request("http://localhost/api/register", {
+        method: "POST",
+        body: JSON.stringify({
+          username: "root",
+          password: "secret1",
+          display_name: "Root"
+        }),
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "active",
+      username: "root",
+      role: "admin",
+      bootstrap: true,
+      message: "管理员账号已创建"
     });
     expect(response.headers.get("set-cookie")).toBeNull();
   });

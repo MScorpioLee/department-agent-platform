@@ -270,6 +270,24 @@ async fn desktop_login(
     Ok(login_response.user)
 }
 
+/// 首次启动引导探测(无需 token):查目标服务器是否空库(needs_setup),从 Rust 侧请求避 CSP/CORS。
+#[tauri::command(rename_all = "camelCase")]
+async fn desktop_setup_status(server_url: String) -> DesktopResult<Value> {
+    let url = api_url(&normalize_server_url(&server_url)?, "/auth/setup-status")?;
+    let response = Client::new()
+        .get(url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|error| DesktopError::internal(format!("请求 Agent Server 失败: {error}")))?;
+    let status = response.status();
+    let body = read_response_body(response).await?;
+    if !status.is_success() {
+        return Err(DesktopError::http(status, &body));
+    }
+    Ok(body)
+}
+
 /// 自助注册(无需 token):从 Rust 侧 POST /api/register,绕过 webview 的 CSP/CORS 限制。
 #[tauri::command(rename_all = "camelCase")]
 async fn desktop_register(
@@ -547,6 +565,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop_login,
+            desktop_setup_status,
             desktop_register,
             desktop_get_me,
             desktop_logout,

@@ -1,4 +1,4 @@
-import type { RegisterUserResponse, User } from "@/lib/types";
+import type { RegisterUserResponse, SetupStatusResponse, User } from "@/lib/types";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -60,6 +60,10 @@ export async function desktopRegister(args: DesktopRegisterArgs): Promise<Regist
     displayName: args.displayName ?? "",
     note: args.note ?? ""
   });
+}
+
+export async function desktopSetupStatus(serverUrl: string): Promise<SetupStatusResponse> {
+  return invokeDesktop<SetupStatusResponse>("desktop_setup_status", { serverUrl });
 }
 
 export async function desktopGetMe(): Promise<User> {

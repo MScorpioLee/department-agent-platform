@@ -28,6 +28,7 @@ import {
   deleteSkill,
   discoverModelProvider,
   getModelOAuthAuthorizeUrl,
+  getSetupStatus,
   importSkill,
   listConnectors,
   listConnectorPresets,
@@ -746,6 +747,31 @@ describe("api-client", () => {
           display_name: "New User",
           note: "需要接入项目"
         }),
+        headers: expect.not.objectContaining({
+          Authorization: expect.anything(),
+          "X-API-Key": expect.anything()
+        })
+      })
+    );
+  });
+
+  test("reads setup status through the public auth route", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ needs_setup: true, allow_registration: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getSetupStatus()).resolves.toEqual({
+      needs_setup: true,
+      allow_registration: true
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/setup-status",
+      expect.objectContaining({
         headers: expect.not.objectContaining({
           Authorization: expect.anything(),
           "X-API-Key": expect.anything()

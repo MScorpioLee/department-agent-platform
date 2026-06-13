@@ -32,6 +32,16 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   if (process.env.MOCK_API === "1") {
+    if (process.env.MOCK_NEEDS_SETUP === "1") {
+      return NextResponse.json({
+        status: "active",
+        username: payload.username,
+        role: "admin",
+        bootstrap: true,
+        message: "管理员账号已创建"
+      });
+    }
+
     const response = await getDefaultMockApi().handle("POST", ["register"], payload);
     return NextResponse.json(response.body, { status: response.status });
   }

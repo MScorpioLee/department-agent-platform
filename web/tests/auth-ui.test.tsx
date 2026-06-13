@@ -1,6 +1,6 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import HomePage from "@/app/page";
 import LoginPage from "@/app/login/page";
@@ -9,6 +9,7 @@ import { AppShell } from "@/components/app-shell";
 const mocks = vi.hoisted(() => ({
   coder: false,
   desktop: false,
+  getSetupStatus: vi.fn(),
   getMe: vi.fn(),
   login: vi.fn(),
   logout: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/api-client", () => ({
+  getSetupStatus: mocks.getSetupStatus,
   getMe: mocks.getMe,
   login: mocks.login,
   logout: mocks.logout,
@@ -35,6 +37,13 @@ vi.mock("@/lib/client-target", () => ({
 }));
 
 describe("auth ui", () => {
+  beforeEach(() => {
+    mocks.getSetupStatus.mockResolvedValue({
+      needs_setup: false,
+      allow_registration: true
+    });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     mocks.coder = false;
@@ -52,7 +61,7 @@ describe("auth ui", () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "alice" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "alice" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
 
@@ -73,7 +82,7 @@ describe("auth ui", () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
+    fireEvent.change(await screen.findByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
     fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "alice" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
@@ -96,7 +105,7 @@ describe("auth ui", () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
+    fireEvent.change(await screen.findByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
     fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "alice" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
@@ -116,7 +125,7 @@ describe("auth ui", () => {
 
     render(<LoginPage />);
 
-    fireEvent.click(screen.getByRole("tab", { name: "注册" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "注册" }));
     fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "new-user" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret1" } });
     fireEvent.change(screen.getByLabelText("显示名"), { target: { value: "New User" } });
@@ -148,7 +157,7 @@ describe("auth ui", () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
+    fireEvent.change(await screen.findByLabelText("Server 地址"), { target: { value: "http://agent.test" } });
     fireEvent.click(screen.getByRole("tab", { name: "注册" }));
     fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "desk-user" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret1" } });
@@ -167,12 +176,78 @@ describe("auth ui", () => {
     });
   });
 
+  test("first-run setup creates the first admin and logs in automatically", async () => {
+    mocks.getSetupStatus.mockResolvedValue({
+      needs_setup: true,
+      allow_registration: true
+    });
+    mocks.registerUser.mockResolvedValue({
+      status: "active",
+      username: "root",
+      role: "admin",
+      bootstrap: true,
+      message: "管理员账号已创建"
+    });
+    mocks.login.mockResolvedValue({
+      id: "u_admin",
+      username: "root",
+      display_name: "Root",
+      role: "admin"
+    });
+
+    render(<LoginPage />);
+
+    expect(await screen.findByText("首次设置 · 创建管理员账号")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "登录" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "注册" })).toBeNull();
+    expect(screen.getByText("这是该服务器的第一个账号,将成为管理员。")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "root" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret1" } });
+    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "secret1" } });
+    fireEvent.change(screen.getByLabelText("显示名"), { target: { value: "Root" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建管理员账号" }));
+
+    await waitFor(() => {
+      expect(mocks.registerUser).toHaveBeenCalledWith(
+        {
+          username: "root",
+          password: "secret1",
+          display_name: "Root",
+          note: ""
+        },
+        {}
+      );
+      expect(mocks.login).toHaveBeenCalledWith("root", "secret1");
+      expect(mocks.replace).toHaveBeenCalledWith("/admin/users");
+    });
+  });
+
+  test("first-run setup validates password confirmation before registering", async () => {
+    mocks.getSetupStatus.mockResolvedValue({
+      needs_setup: true,
+      allow_registration: true
+    });
+
+    render(<LoginPage />);
+
+    await screen.findByText("首次设置 · 创建管理员账号");
+    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "root" } });
+    fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret1" } });
+    fireEvent.change(screen.getByLabelText("确认密码"), { target: { value: "secret2" } });
+    fireEvent.click(screen.getByRole("button", { name: "创建管理员账号" }));
+
+    expect(await screen.findByText("两次输入的密码不一致")).toBeTruthy();
+    expect(mocks.registerUser).not.toHaveBeenCalled();
+    expect(mocks.login).not.toHaveBeenCalled();
+  });
+
   test("login page renders pending approval errors explicitly", async () => {
     mocks.login.mockRejectedValue({ status: 403, code: "pending_approval", message: "账号待审批" });
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText("用户名"), { target: { value: "pending" } });
+    fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "pending" } });
     fireEvent.change(screen.getByLabelText("密码"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "登录" }));
 

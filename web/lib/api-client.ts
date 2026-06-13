@@ -49,6 +49,7 @@ import type {
   RejectRegistrationResponse,
   SendMessageResponse,
   Skill,
+  SetupStatusResponse,
   TaskOutput,
   TaskRecord,
   UpdateConnectorRequest,
@@ -64,6 +65,7 @@ import {
   desktopLogin,
   desktopLogout,
   desktopRegister,
+  desktopSetupStatus,
   type DesktopLoginOptions
 } from "@/lib/desktop-bridge";
 
@@ -245,6 +247,15 @@ export async function registerUser(
     },
     "/api"
   );
+}
+
+export function getSetupStatus(options: { serverUrl?: string } = {}): Promise<SetupStatusResponse> {
+  if (isDesktopClient()) {
+    // 桌面端经 Rust 命令探测,绕过 webview CSP/CORS(与 login/register 一致)
+    return desktopCommand(desktopSetupStatus(normalizeServerUrl(options.serverUrl)));
+  }
+
+  return apiFetch<SetupStatusResponse>("/setup-status", {}, "/api/auth");
 }
 
 export function getMe(): Promise<User> {

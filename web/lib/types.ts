@@ -319,10 +319,25 @@ export interface RegisterUserRequest {
   note?: string;
 }
 
-export interface RegisterUserResponse {
-  status: "pending";
-  username: string;
-  message: string;
+export type RegisterUserResponse =
+  | {
+      status: "pending";
+      username: string;
+      message: string;
+    }
+  | {
+      status: "active";
+      username: string;
+      role: "admin" | "user";
+      bootstrap?: boolean;
+      message?: string;
+      id?: string;
+      display_name?: string;
+    };
+
+export interface SetupStatusResponse {
+  needs_setup: boolean;
+  allow_registration: boolean;
 }
 
 export interface Registration {
