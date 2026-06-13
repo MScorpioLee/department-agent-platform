@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:  # 手动触发(含较贵的 macOS desktop-rust 任务)
 
 jobs:
   server:
@@ -41,8 +42,10 @@ jobs:
       - name: Build
         run: pnpm build
 
+  # macOS runner 较贵(10x 计费),默认不在每次 push 跑;需要时在 Actions 页手动触发(workflow_dispatch)
   desktop-rust:
     name: Desktop Rust tests (local tool layer)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     defaults:
       run:
