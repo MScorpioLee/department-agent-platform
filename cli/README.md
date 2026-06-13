@@ -14,7 +14,7 @@ uv pip install -e .
 ## 用法
 
 ```bash
-.venv/bin/agent login http://192.168.1.143:8700   # 登录(token 存 ~/.agent-cli/config.json,0600)
+.venv/bin/agent login http://192.168.1.10:8700   # 登录(token 存 ~/.agent-cli/config.json,0600)
 .venv/bin/agent machines                            # 列机器(在线状态/工具数)
 .venv/bin/agent chat -m win-notebook                # 对话:模型驱动该机器,工具调用+命令输出实时流在终端
 .venv/bin/agent approvals                           # 看待审批(高危命令)

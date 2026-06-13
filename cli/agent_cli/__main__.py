@@ -21,7 +21,7 @@ def _client(require_token: bool = True) -> AgentClient:
 async def cmd_login(args) -> None:
     server_url = args.server_url or config.load().get("server_url")
     if not server_url:
-        server_url = input("Server 地址 (如 http://192.168.1.143:8700): ").strip()
+        server_url = input("Server 地址 (如 http://192.168.1.10:8700): ").strip()
     username = args.username or input("用户名: ").strip()
     password = getpass.getpass("密码: ")
     client = AgentClient(server_url)
