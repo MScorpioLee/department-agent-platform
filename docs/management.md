@@ -213,3 +213,15 @@ OpenAI 未禁止第三方工具用 ChatGPT/Codex 订阅(与 Anthropic 相反,见
 构建变体(desktop):tauri.coder.conf.json(productName "Agent Coder"、独立 identifier、coder 构建环境)
 + 脚本 build:coder:mac / dev:coder。profile 标志 isCoderProfile()(web/lib/client-target.ts)。
 UI=T-DESK-04(交 Codex);打包基建已就绪,UI 落地后一条命令出 Agent Coder.app。
+
+
+## M17:自助注册 + 管理员审批
+
+此前只有管理员建号。新增开放注册:
+- User 加 status(active|pending|rejected)+ note(申请说明)。
+- POST /api/register(开放):创建 status=pending 用户,不签发 token。
+- 登录:pending → 403 pending_approval(提示待审批,非"密码错误")。
+- 管理员:GET /api/admin/registrations(待审批),approve(→active 可登录)/reject(删除,释放用户名)。
+- 管理员建号(POST /api/users)默认 active,无需审批。
+- 开关 allow_registration(默认开;关掉则只能管理员建号)。
+- 留作后续/部署层:注册限流、邮箱/验证码。UI=T-WEB-19。

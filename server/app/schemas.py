@@ -36,6 +36,13 @@ class UserCreateIn(BaseModel):
     role: str = Field(default="user", pattern="^(user|admin)$")
 
 
+class RegisterIn(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=6)
+    display_name: str | None = None
+    note: str | None = Field(default=None, max_length=255)  # 申请说明(可选)
+
+
 class EnrollmentTokenIn(BaseModel):
     owner_user_id: str | None = None  # 绑定机器归属;None=无主
     max_uses: int = Field(default=1, ge=0)  # 0=不限次

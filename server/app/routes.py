@@ -39,6 +39,7 @@ from .schemas import (
     GrantIn,
     LoginIn,
     MessageIn,
+    RegisterIn,
     SessionIn,
     TaskIn,
     UserCreateIn,
@@ -76,7 +77,15 @@ def _task_out(t: Task) -> dict:
 
 
 def _user_out(u: User) -> dict:
-    return {"id": u.id, "username": u.username, "display_name": u.display_name, "role": u.role}
+    return {
+        "id": u.id,
+        "username": u.username,
+        "display_name": u.display_name,
+        "role": u.role,
+        "status": u.status,
+        "note": u.note,
+        "created_at": _iso(u.created_at),
+    }
 
 
 def _grant_active(g: MachineGrant) -> bool:
@@ -132,6 +141,10 @@ async def login(body: LoginIn, request: Request) -> dict:
         ).scalar_one_or_none()
         if user is None or not verify_password(body.password, user.password_hash):
             raise HTTPException(401, {"code": "invalid_credentials", "message": "用户名或密码错误"})
+        if user.status == "pending":
+            raise HTTPException(403, {"code": "pending_approval", "message": "账号待管理员审批,通过后可登录"})
+        if user.status != "active":
+            raise HTTPException(403, {"code": "account_disabled", "message": "账号不可用,请联系管理员"})
         token = new_auth_token()
         ttl_days = request.app.state.settings.auth_token_ttl_days
         session.add(
@@ -195,6 +208,76 @@ async def list_users(request: Request) -> list[dict]:
     async with request.app.state.sessionmaker() as session:
         rows = (await session.execute(select(User).order_by(User.created_at))).scalars().all()
     return [_user_out(u) for u in rows]
+
+
+# ---------- 自助注册 + 管理员审批 ----------
+
+
+@router.post("/api/register")
+async def register(body: RegisterIn, request: Request) -> dict:
+    """开放自助注册:创建 status=pending 用户,需管理员审批通过后才能登录。"""
+    settings = request.app.state.settings
+    if not getattr(settings, "allow_registration", True):
+        raise HTTPException(403, {"code": "registration_disabled", "message": "本服务器未开放自助注册,请联系管理员建号"})
+    async with request.app.state.sessionmaker() as session:
+        exists = (
+            await session.execute(select(User).where(User.username == body.username))
+        ).scalar_one_or_none()
+        if exists is not None:
+            raise HTTPException(409, {"code": "user_exists", "message": "用户名已被占用"})
+        user = User(
+            id=new_id("u"),
+            username=body.username,
+            display_name=body.display_name or body.username,
+            role="user",
+            status="pending",
+            note=body.note,
+            password_hash=hash_password(body.password),
+        )
+        session.add(user)
+        await session.commit()
+    # 不签发 token;返回待审批态
+    return {"status": "pending", "username": body.username, "message": "注册已提交,等待管理员审批"}
+
+
+@router.get("/api/admin/registrations", dependencies=[Depends(require_admin)])
+async def list_registrations(request: Request) -> list[dict]:
+    """待审批的注册申请(status=pending)。"""
+    async with request.app.state.sessionmaker() as session:
+        rows = (
+            await session.execute(
+                select(User).where(User.status == "pending").order_by(User.created_at)
+            )
+        ).scalars().all()
+    return [_user_out(u) for u in rows]
+
+
+@router.post("/api/admin/registrations/{user_id}/approve")
+async def approve_registration(user_id: str, request: Request, _admin: User = Depends(require_admin)) -> dict:
+    async with request.app.state.sessionmaker() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            raise HTTPException(404, {"code": "user_not_found", "message": "用户不存在"})
+        if user.status != "pending":
+            raise HTTPException(409, {"code": "not_pending", "message": "该申请已被处理"})
+        user.status = "active"
+        await session.commit()
+        out = _user_out(user)
+    return out
+
+
+@router.post("/api/admin/registrations/{user_id}/reject")
+async def reject_registration(user_id: str, request: Request, _admin: User = Depends(require_admin)) -> dict:
+    """拒绝:删除该待审批注册(用户名随之释放)。"""
+    async with request.app.state.sessionmaker() as session:
+        user = await session.get(User, user_id)
+        if user is None:
+            raise HTTPException(404, {"code": "user_not_found", "message": "用户不存在"})
+        if user.status != "pending":
+            raise HTTPException(409, {"code": "not_pending", "message": "该申请已被处理"})
+        await session.delete(user)
+        await session.commit()
+    return {"rejected": user_id}
 
 
 # ---------- 机器注册与归属(管理) ----------

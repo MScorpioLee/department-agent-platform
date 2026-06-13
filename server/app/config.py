@@ -37,3 +37,5 @@ class Settings(BaseSettings):
     admin_username: str | None = None
     admin_password: str | None = None
     auth_token_ttl_days: int = 7
+    # 是否开放自助注册(注册后置 pending,需管理员审批才能登录);关掉则只能管理员建号
+    allow_registration: bool = True

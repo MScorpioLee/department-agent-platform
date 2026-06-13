@@ -261,6 +261,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     display_name: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="user")  # user/admin
+    # active=可登录;pending=自助注册待审批;rejected=被拒。管理员建号默认 active
+    status: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    note: Mapped[str | None] = mapped_column(String(255))  # 自助注册时的申请说明,供管理员审批参考
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
