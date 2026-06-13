@@ -361,6 +361,41 @@ describe("auth ui", () => {
     expect(screen.getByRole("link", { name: "编码 Agent" })).toBeTruthy();
   });
 
+  test("app shell shows local server navigation only in desktop console mode", async () => {
+    mocks.pathname = "/server";
+    mocks.desktop = true;
+
+    render(
+      <AppShell>
+        <div>服务器面板</div>
+      </AppShell>
+    );
+
+    expect(screen.getByText("服务器面板")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "服务器" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "登录" })).toBeTruthy();
+    expect(mocks.getMe).not.toHaveBeenCalled();
+  });
+
+  test("app shell hides local server navigation outside desktop console mode", async () => {
+    mocks.pathname = "/machines";
+    mocks.getMe.mockResolvedValue({
+      id: "u_mock",
+      username: "admin",
+      display_name: "管理员",
+      role: "admin"
+    });
+
+    render(
+      <AppShell>
+        <div>管理内容</div>
+      </AppShell>
+    );
+
+    expect(await screen.findByText("管理员")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "服务器" })).toBeNull();
+  });
+
   test("coder profile bypasses the management shell navigation", async () => {
     mocks.coder = true;
     mocks.desktop = true;

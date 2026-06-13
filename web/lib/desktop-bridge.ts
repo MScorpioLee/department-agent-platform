@@ -1,4 +1,11 @@
-import type { RegisterUserResponse, SetupStatusResponse, User } from "@/lib/types";
+import type {
+  LocalServerConfig,
+  LocalServerConfigPatch,
+  LocalServerStatus,
+  RegisterUserResponse,
+  SetupStatusResponse,
+  User
+} from "@/lib/types";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -64,6 +71,32 @@ export async function desktopRegister(args: DesktopRegisterArgs): Promise<Regist
 
 export async function desktopSetupStatus(serverUrl: string): Promise<SetupStatusResponse> {
   return invokeDesktop<SetupStatusResponse>("desktop_setup_status", { serverUrl });
+}
+
+export async function serverGetConfig(): Promise<LocalServerConfig> {
+  return invokeDesktop<LocalServerConfig>("server_get_config", {});
+}
+
+export async function serverSetConfig(patch: LocalServerConfigPatch): Promise<LocalServerConfig> {
+  return invokeDesktop<LocalServerConfig>("server_set_config", { patch });
+}
+
+export async function serverStatus(): Promise<LocalServerStatus> {
+  return invokeDesktop<LocalServerStatus>("server_status", {});
+}
+
+export async function serverStart(): Promise<LocalServerStatus> {
+  return invokeDesktop<LocalServerStatus>("server_start", {});
+}
+
+export async function serverStop(): Promise<LocalServerStatus> {
+  return invokeDesktop<LocalServerStatus>("server_stop", {});
+}
+
+export async function chooseServerDirectory(): Promise<string | null> {
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  const selected = await dialog.open({ directory: true, multiple: false });
+  return typeof selected === "string" ? selected : null;
 }
 
 export async function desktopGetMe(): Promise<User> {

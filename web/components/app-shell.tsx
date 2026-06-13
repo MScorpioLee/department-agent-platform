@@ -6,9 +6,11 @@ import {
   ClipboardList,
   Code2,
   KeyRound,
+  LogIn,
   LogOut,
   MessageSquare,
   Plug,
+  Power,
   Server,
   Settings,
   ShieldCheck,
@@ -35,6 +37,7 @@ const navItems = [
   { href: "/approvals", label: "审批", icon: ShieldCheck, section: "workspace" },
   { href: "/machines", label: "机器", icon: Server, section: "developer" },
   { href: "/console", label: "控制台", icon: TerminalSquare, section: "developer" },
+  { href: "/server", label: "服务器", icon: Power, desktopOnly: true, section: "developer" },
   { href: "/settings", label: "设置", icon: Settings, desktopOnly: true, section: "developer" },
   { href: "/admin/users", label: "用户", icon: Users, adminOnly: true, section: "admin" },
   { href: "/admin/onboarding", label: "上线", icon: KeyRound, adminOnly: true, section: "admin" },
@@ -59,6 +62,7 @@ function uiModeForPathname(pathname: string) {
     pathname === "/audit" ||
     pathname.startsWith("/machines") ||
     pathname === "/console" ||
+    pathname === "/server" ||
     pathname === "/settings"
   ) {
     return "developer";
@@ -73,13 +77,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLoginPage = normalizedPathname === "/login";
   const desktopClient = isDesktopClient();
   const coderProfile = isCoderProfile();
+  const isLocalServerPage = normalizedPathname === "/server" && desktopClient && !coderProfile;
+  const isPublicPage = isLoginPage || isLocalServerPage;
   const uiMode = uiModeForPathname(normalizedPathname);
   const [user, setUser] = useState<User | null>(null);
-  const [checkingAuth, setCheckingAuth] = useState(!isLoginPage);
+  const [checkingAuth, setCheckingAuth] = useState(!isPublicPage);
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    if (isLoginPage) {
+    if (isPublicPage) {
       setUser(null);
       setCheckingAuth(false);
       return;
@@ -110,14 +116,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isLoginPage, pathname, router]);
+  }, [isPublicPage, pathname, router]);
 
   useEffect(() => {
-    if (!coderProfile || isLoginPage || checkingAuth) return;
+    if (!coderProfile || isPublicPage || checkingAuth) return;
     if (normalizedPathname !== "/desktop-agent") {
       router.replace("/desktop-agent");
     }
-  }, [checkingAuth, coderProfile, isLoginPage, normalizedPathname, router]);
+  }, [checkingAuth, coderProfile, isPublicPage, normalizedPathname, router]);
 
   async function handleLogout() {
     setLoggingOut(true);
@@ -236,15 +242,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="truncate font-medium">{user.display_name || user.username}</span>
               </div>
             ) : null}
-            <button
-              type="button"
-              onClick={() => void handleLogout()}
-              disabled={loggingOut}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <LogOut aria-hidden="true" className="h-4 w-4" />
-              登出
-            </button>
+            {user ? (
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                disabled={loggingOut}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <LogOut aria-hidden="true" className="h-4 w-4" />
+                登出
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                <LogIn aria-hidden="true" className="h-4 w-4" />
+                登录
+              </Link>
+            )}
           </div>
         </header>
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">

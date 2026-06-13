@@ -340,6 +340,29 @@ export interface SetupStatusResponse {
   allow_registration: boolean;
 }
 
+export interface LocalServerConfig {
+  server_dir: string;
+  port: number;
+  database_url: string;
+  models_config_path: string;
+  secret_key_set: boolean;
+}
+
+export interface LocalServerConfigPatch {
+  serverDir?: string;
+  port?: number;
+  databaseUrl?: string;
+  modelsConfigPath?: string;
+}
+
+export interface LocalServerStatus {
+  running: boolean;
+  reachable: boolean;
+  pid?: number | null;
+  port?: number | null;
+  configured: boolean;
+}
+
 export interface Registration {
   id: string;
   username: string;
