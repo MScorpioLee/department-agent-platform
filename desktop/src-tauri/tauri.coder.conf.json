@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Agent Coder",
+  "identifier": "com.department.agent.coder",
+  "build": {
+    "beforeDevCommand": "cd ../web && NEXT_PUBLIC_CLIENT_TARGET=desktop NEXT_PUBLIC_CLIENT_PROFILE=coder corepack pnpm dev --hostname 127.0.0.1 --port 3001",
+    "beforeBuildCommand": "cd ../web && NEXT_PUBLIC_CLIENT_TARGET=desktop NEXT_PUBLIC_CLIENT_PROFILE=coder NEXT_OUTPUT=export corepack pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Agent Coder"
+      }
+    ]
+  },
+  "bundle": {
+    "shortDescription": "Agent Coder — 编码 Agent 客户端",
+    "longDescription": "面向用户的编码 Agent 桌面客户端(连接 Department Agent 平台)"
+  }
+}

@@ -6,10 +6,13 @@
   "scripts": {
     "icons": "node scripts/generate-icons.mjs && tauri icon assets/icon-source.png",
     "dev": "tauri dev",
+    "dev:coder": "tauri dev --config src-tauri/tauri.coder.conf.json",
     "build": "tauri build",
     "build:mac": "tauri build --bundles app,dmg",
     "build:windows": "tauri build --bundles msi,nsis",
     "build:linux": "tauri build --bundles appimage,deb",
+    "build:coder:mac": "tauri build --config src-tauri/tauri.coder.conf.json --bundles app,dmg",
+    "build:coder:windows": "tauri build --config src-tauri/tauri.coder.conf.json --bundles msi,nsis",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml"
   },

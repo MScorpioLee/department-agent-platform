@@ -201,3 +201,15 @@ OpenAI 未禁止第三方工具用 ChatGPT/Codex 订阅(与 Anthropic 相反,见
   命令内联审批。仅桌面端可见。
 
 诚实边界:Rust 核心已 cargo 编译 + 单测验证;完整 GUI 需真实构建环境跑(本机无显示),交 Codex 实现后联调。
+
+
+## M16-b:独立用户端「Agent Coder」(聚焦编码客户端)
+
+与管理端 App 同一套代码,经 profile 区分两个产品:
+- **console 画像**(默认):现有 Department Agent 管理端,按角色全功能。
+- **coder 画像**(NEXT_PUBLIC_CLIENT_PROFILE=coder):独立品牌 Agent Coder,纯编码工作台
+  (三栏:会话/项目 + 对话 + 代码/diff),无任何管理/开发者菜单。形态对齐 Codex/OpenClaw 类编码工具。
+
+构建变体(desktop):tauri.coder.conf.json(productName "Agent Coder"、独立 identifier、coder 构建环境)
++ 脚本 build:coder:mac / dev:coder。profile 标志 isCoderProfile()(web/lib/client-target.ts)。
+UI=T-DESK-04(交 Codex);打包基建已就绪,UI 落地后一条命令出 Agent Coder.app。
