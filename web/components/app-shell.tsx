@@ -4,6 +4,7 @@ import {
   Bot,
   BookOpen,
   ClipboardList,
+  Code2,
   KeyRound,
   LogOut,
   MessageSquare,
@@ -27,6 +28,7 @@ import type { User } from "@/lib/types";
 
 const navItems = [
   { href: "/chat", label: "对话", icon: MessageSquare, section: "workspace" },
+  { href: "/desktop-agent", label: "编码 Agent", icon: Code2, desktopOnly: true, section: "workspace" },
   { href: "/skills", label: "技能", icon: BookOpen, section: "workspace" },
   { href: "/api-access", label: "API 接入", icon: KeyRound, section: "workspace" },
   { href: "/my-models", label: "模型登录", icon: Bot, section: "workspace" },

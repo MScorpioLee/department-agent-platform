@@ -101,6 +101,7 @@ describe("auth ui", () => {
     expect(screen.getByRole("link", { name: "模型" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "连接器" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "技能" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "编码 Agent" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "登出" }));
 
     await waitFor(() => {
@@ -160,5 +161,26 @@ describe("auth ui", () => {
     expect(screen.queryByRole("link", { name: "模型" })).toBeNull();
     expect(screen.queryByRole("link", { name: "连接器" })).toBeNull();
     expect(screen.getByRole("link", { name: "技能" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "编码 Agent" })).toBeNull();
+  });
+
+  test("app shell shows coding agent navigation only in desktop mode", async () => {
+    mocks.pathname = "/desktop-agent";
+    mocks.desktop = true;
+    mocks.getMe.mockResolvedValue({
+      id: "u_mock",
+      username: "bob",
+      display_name: "bob",
+      role: "user"
+    });
+
+    render(
+      <AppShell>
+        <div>桌面编码</div>
+      </AppShell>
+    );
+
+    expect(await screen.findByText("bob")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "编码 Agent" })).toBeTruthy();
   });
 });

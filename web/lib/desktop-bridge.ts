@@ -27,13 +27,17 @@ async function getInvoke(): Promise<Invoke> {
   return api.invoke as Invoke;
 }
 
+export async function invokeDesktop<T>(command: string, args: Record<string, unknown> = {}): Promise<T> {
+  const invoke = await getInvoke();
+  return invoke<T>(command, args);
+}
+
 export async function desktopLogin(
   username: string,
   password: string,
   options: DesktopLoginOptions = {}
 ): Promise<User> {
-  const invoke = await getInvoke();
-  return invoke<User>("desktop_login", {
+  return invokeDesktop<User>("desktop_login", {
     serverUrl: options.serverUrl ?? "",
     username,
     password
@@ -41,13 +45,11 @@ export async function desktopLogin(
 }
 
 export async function desktopGetMe(): Promise<User> {
-  const invoke = await getInvoke();
-  return invoke<User>("desktop_get_me", {});
+  return invokeDesktop<User>("desktop_get_me", {});
 }
 
 export async function desktopLogout(): Promise<void> {
-  const invoke = await getInvoke();
-  await invoke<void>("desktop_logout", {});
+  await invokeDesktop<void>("desktop_logout", {});
 }
 
 export async function desktopApiFetch(
@@ -55,12 +57,11 @@ export async function desktopApiFetch(
   init: RequestInit = {},
   prefix = "/api/proxy"
 ): Promise<DesktopHttpResponse> {
-  const invoke = await getInvoke();
   const method = init.method ?? "GET";
   const body = typeof init.body === "string" && init.body ? JSON.parse(init.body) : null;
   const directPath = prefix === "/api/auth" ? `/auth${path}` : path;
 
-  return invoke<DesktopHttpResponse>("desktop_api_request", {
+  return invokeDesktop<DesktopHttpResponse>("desktop_api_request", {
     method,
     path: directPath,
     body
@@ -68,16 +69,13 @@ export async function desktopApiFetch(
 }
 
 export async function getDesktopServerUrl(): Promise<string> {
-  const invoke = await getInvoke();
-  return invoke<string>("desktop_get_server_url", {});
+  return invokeDesktop<string>("desktop_get_server_url", {});
 }
 
 export async function setDesktopServerUrl(serverUrl: string): Promise<string> {
-  const invoke = await getInvoke();
-  return invoke<string>("desktop_set_server_url", { serverUrl });
+  return invokeDesktop<string>("desktop_set_server_url", { serverUrl });
 }
 
 export async function notifyDesktop(title: string, body: string): Promise<void> {
-  const invoke = await getInvoke();
-  await invoke<void>("desktop_notify", { title, body });
+  await invokeDesktop<void>("desktop_notify", { title, body });
 }
