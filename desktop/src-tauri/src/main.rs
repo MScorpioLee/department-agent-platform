@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     fs,
+    net::TcpStream,
     path::{Component, Path, PathBuf},
-    process::Command as ProcCommand,
-    sync::Mutex
+    process::{Command as ProcCommand, Stdio},
+    sync::Mutex,
+    time::Duration
 };
 use tauri::{tray::TrayIconBuilder, AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
@@ -552,6 +554,268 @@ async fn agent_model_chat(app: AppHandle, messages: Value, tools: Option<Value>)
     Ok(body)
 }
 
+// ---------- 本机 Agent Server 启停(管理端 app 当服务器控制器,手动开关)----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ServerConfig {
+    #[serde(default)]
+    server_dir: String, // server/ 目录(含 app/ 与 .venv/)
+    #[serde(default = "default_server_port")]
+    port: u16,
+    #[serde(default)]
+    database_url: String,
+    #[serde(default)]
+    secret_key: String,
+    #[serde(default)]
+    models_config_path: String,
+    #[serde(default)]
+    api_key: String,
+    #[serde(default)]
+    enrollment_token: String
+}
+
+fn default_server_port() -> u16 {
+    8700
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            server_dir: String::new(),
+            port: 8700,
+            database_url: String::new(),
+            secret_key: String::new(),
+            models_config_path: String::new(),
+            api_key: String::new(),
+            enrollment_token: String::new()
+        }
+    }
+}
+
+/// 32 字节随机十六进制(/dev/urandom);失败时退回基于时间的弱值(仅占位)。
+fn random_secret() -> String {
+    if let Ok(bytes) = fs::read("/dev/urandom") {
+        if bytes.len() >= 32 {
+            return bytes[..32].iter().map(|b| format!("{b:02x}")).collect();
+        }
+    }
+    format!("{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0))
+}
+
+fn server_data_dir(app: &AppHandle) -> DesktopResult<PathBuf> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| DesktopError::internal(format!("读取数据目录失败: {error}")))?;
+    fs::create_dir_all(&dir).map_err(|error| DesktopError::internal(format!("创建数据目录失败: {error}")))?;
+    Ok(dir)
+}
+
+fn server_config_path(app: &AppHandle) -> DesktopResult<PathBuf> {
+    Ok(server_data_dir(app)?.join("server-control.json"))
+}
+
+fn server_pid_path(app: &AppHandle) -> DesktopResult<PathBuf> {
+    Ok(server_data_dir(app)?.join("server.pid"))
+}
+
+/// 读配置;补齐缺省(自动生成强随机密钥、默认 DB 路径放数据目录),并回写持久化。
+fn load_server_config(app: &AppHandle) -> DesktopResult<ServerConfig> {
+    let path = server_config_path(app)?;
+    let mut cfg: ServerConfig = if path.exists() {
+        serde_json::from_str(&fs::read_to_string(&path).unwrap_or_default()).unwrap_or_default()
+    } else {
+        ServerConfig::default()
+    };
+    let data_dir = server_data_dir(app)?;
+    let mut changed = false;
+    if cfg.secret_key.is_empty() {
+        cfg.secret_key = random_secret();
+        changed = true;
+    }
+    if cfg.api_key.is_empty() {
+        cfg.api_key = random_secret();
+        changed = true;
+    }
+    if cfg.enrollment_token.is_empty() {
+        cfg.enrollment_token = random_secret();
+        changed = true;
+    }
+    if cfg.database_url.is_empty() {
+        let db = data_dir.join("server.db");
+        cfg.database_url = format!("sqlite+aiosqlite:///{}", db.to_string_lossy());
+        changed = true;
+    }
+    if cfg.port == 0 {
+        cfg.port = 8700;
+        changed = true;
+    }
+    if changed {
+        let _ = fs::write(&path, serde_json::to_string_pretty(&cfg).unwrap_or_default());
+    }
+    Ok(cfg)
+}
+
+/// 配置脱敏出 UI:不回 secret_key/api_key/enrollment_token 明文。
+fn server_config_public(cfg: &ServerConfig) -> Value {
+    json!({
+        "server_dir": cfg.server_dir,
+        "port": cfg.port,
+        "database_url": cfg.database_url,
+        "models_config_path": cfg.models_config_path,
+        "secret_key_set": !cfg.secret_key.is_empty(),
+    })
+}
+
+fn pid_alive(pid: u32) -> bool {
+    ProcCommand::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn port_open(port: u16) -> bool {
+    TcpStream::connect_timeout(
+        &format!("127.0.0.1:{port}").parse().unwrap(),
+        Duration::from_millis(400)
+    )
+    .is_ok()
+}
+
+fn read_pid(app: &AppHandle) -> Option<u32> {
+    fs::read_to_string(server_pid_path(app).ok()?)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+#[tauri::command]
+fn server_get_config(app: AppHandle) -> DesktopResult<Value> {
+    Ok(server_config_public(&load_server_config(&app)?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerConfigPatch {
+    server_dir: Option<String>,
+    port: Option<u16>,
+    database_url: Option<String>,
+    models_config_path: Option<String>
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn server_set_config(app: AppHandle, patch: ServerConfigPatch) -> DesktopResult<Value> {
+    let mut cfg = load_server_config(&app)?;
+    if let Some(v) = patch.server_dir {
+        cfg.server_dir = v.trim().to_string();
+    }
+    if let Some(v) = patch.port {
+        if v != 0 {
+            cfg.port = v;
+        }
+    }
+    if let Some(v) = patch.database_url {
+        cfg.database_url = v.trim().to_string();
+    }
+    if let Some(v) = patch.models_config_path {
+        cfg.models_config_path = v.trim().to_string();
+    }
+    fs::write(server_config_path(&app)?, serde_json::to_string_pretty(&cfg).unwrap_or_default())
+        .map_err(|error| DesktopError::internal(format!("写配置失败: {error}")))?;
+    Ok(server_config_public(&cfg))
+}
+
+#[tauri::command]
+fn server_status(app: AppHandle) -> DesktopResult<Value> {
+    let cfg = load_server_config(&app)?;
+    let pid = read_pid(&app);
+    let managed_alive = pid.map(pid_alive).unwrap_or(false);
+    let reachable = port_open(cfg.port);
+    Ok(json!({
+        "running": managed_alive,        // 本 app 托管的进程是否在跑
+        "reachable": reachable,          // 端口能否连上(可能是外部起的同端口 server)
+        "pid": pid,
+        "port": cfg.port,
+        "configured": !cfg.server_dir.is_empty(),
+    }))
+}
+
+#[tauri::command]
+fn server_start(app: AppHandle) -> DesktopResult<Value> {
+    let cfg = load_server_config(&app)?;
+    if cfg.server_dir.is_empty() {
+        return Err(DesktopError::new(Some(409), "not_configured", "请先在设置里指定 server 目录"));
+    }
+    if read_pid(&app).map(pid_alive).unwrap_or(false) {
+        return Ok(json!({"running": true, "already": true}));
+    }
+    if port_open(cfg.port) {
+        return Err(DesktopError::new(Some(409), "port_in_use", format!("端口 {} 已被占用(可能已有 server 在跑)", cfg.port)));
+    }
+    let dir = Path::new(&cfg.server_dir);
+    if !dir.is_dir() {
+        return Err(DesktopError::new(Some(400), "bad_server_dir", "server 目录不存在"));
+    }
+    // 优先用 server/.venv 的 python,否则退回 python3
+    let venv_py = dir.join(".venv/bin/python");
+    let python = if venv_py.exists() {
+        venv_py.to_string_lossy().to_string()
+    } else {
+        "python3".to_string()
+    };
+    let log = server_data_dir(&app)?.join("server.log");
+    let log_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log)
+        .map_err(|error| DesktopError::internal(format!("打开日志失败: {error}")))?;
+
+    let mut command = ProcCommand::new(python);
+    command
+        .args(["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", &cfg.port.to_string(), "--log-level", "warning"])
+        .current_dir(dir)
+        // 只注入 server 自身所需的 env(不预置 AGENT_ADMIN_*,以便首次设置流程创建管理员)
+        .env("AGENT_DATABASE_URL", &cfg.database_url)
+        .env("AGENT_SECRET_KEY", &cfg.secret_key)
+        .env("AGENT_API_KEY", &cfg.api_key)
+        .env("AGENT_ENROLLMENT_TOKEN", &cfg.enrollment_token)
+        .stdout(Stdio::from(log_file.try_clone().map_err(|e| DesktopError::internal(e.to_string()))?))
+        .stderr(Stdio::from(log_file));
+    if !cfg.models_config_path.is_empty() {
+        command.env("AGENT_MODELS_CONFIG_PATH", &cfg.models_config_path);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0); // 独立进程组:app 关闭后 server 仍在跑(手动停才停)
+    }
+
+    let child = command
+        .spawn()
+        .map_err(|error| DesktopError::internal(format!("启动 server 失败: {error}")))?;
+    let pid = child.id();
+    fs::write(server_pid_path(&app)?, pid.to_string())
+        .map_err(|error| DesktopError::internal(format!("写 pid 失败: {error}")))?;
+    Ok(json!({"running": true, "pid": pid, "port": cfg.port}))
+}
+
+#[tauri::command]
+fn server_stop(app: AppHandle) -> DesktopResult<Value> {
+    let pid = read_pid(&app);
+    if let Some(pid) = pid {
+        if pid_alive(pid) {
+            #[cfg(unix)]
+            let _ = ProcCommand::new("kill").args(["-TERM", &pid.to_string()]).status();
+            #[cfg(windows)]
+            let _ = ProcCommand::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).status();
+        }
+    }
+    let _ = fs::remove_file(server_pid_path(&app)?);
+    Ok(json!({"running": false}))
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(WorkspaceState::default())
@@ -579,7 +843,12 @@ fn main() {
             agent_read_file,
             agent_write_file,
             agent_run_command,
-            agent_model_chat
+            agent_model_chat,
+            server_get_config,
+            server_set_config,
+            server_status,
+            server_start,
+            server_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
