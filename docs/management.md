@@ -225,3 +225,14 @@ UI=T-DESK-04(交 Codex);打包基建已就绪,UI 落地后一条命令出 Agent 
 - 管理员建号(POST /api/users)默认 active,无需审批。
 - 开关 allow_registration(默认开;关掉则只能管理员建号)。
 - 留作后续/部署层:注册限流、邮箱/验证码。UI=T-WEB-19。
+
+
+## M18:首次启动引导(空库 → 第一个注册者 = 管理员)
+
+消灭预置默认管理员口令(如公开仓库里曝光的 admin12345)。
+- GET /api/auth/setup-status → {needs_setup, allow_registration};needs_setup=空库。
+- POST /api/register:**空库时首个注册者直接 role=admin、status=active**(无需审批,bootstrap 始终允许,
+  不受 allow_registration 限制);之后注册回到普通用户 pending。
+- 兼容:AGENT_ADMIN_USERNAME/PASSWORD 仍可预置管理员(老部署不破);新部署推荐**不设**这两个,
+  改用首次设置流程(登录页变「创建管理员」,提交即自动登录)。
+- UI=T-WEB-20。

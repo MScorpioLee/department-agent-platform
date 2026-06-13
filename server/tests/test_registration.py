@@ -54,6 +54,47 @@ def test_register_duplicate_and_admin_created_active(client):
     assert client.get("/api/admin/registrations", headers={"Authorization": f"Bearer {atok}"}).status_code == 403
 
 
+def _fresh_app(tmp_path, **overrides):
+    """无预置管理员的全新应用(空库),用于测首次引导。"""
+    from app.config import Settings
+    from app.main import create_app
+    from starlette.testclient import TestClient
+
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path}/boot.db",
+        enrollment_token="test-enroll", api_key="test-key",
+        admin_username=None, admin_password=None,  # 不预置管理员
+        **overrides,
+    )
+    return TestClient(create_app(settings))
+
+
+def test_first_register_becomes_admin(tmp_path):
+    with _fresh_app(tmp_path) as c:
+        # 空库:需要首次设置
+        assert c.get("/api/auth/setup-status").json()["needs_setup"] is True
+        # 首个注册者 = 管理员,直接 active
+        r = c.post("/api/register", json={"username": "boss", "password": "pass1234"})
+        assert r.status_code == 200
+        assert r.json()["bootstrap"] is True and r.json()["role"] == "admin" and r.json()["status"] == "active"
+        # 直接可登录,且是 admin
+        login = c.post("/api/auth/login", json={"username": "boss", "password": "pass1234"})
+        assert login.status_code == 200 and login.json()["user"]["role"] == "admin"
+        # 不再 needs_setup;之后注册回到 pending(普通用户)
+        assert c.get("/api/auth/setup-status").json()["needs_setup"] is False
+        r2 = c.post("/api/register", json={"username": "staff", "password": "pass1234"})
+        assert r2.json()["status"] == "pending" and "bootstrap" not in r2.json()
+
+
+def test_bootstrap_works_even_if_registration_disabled(tmp_path):
+    # 即便关了自助注册,空库仍允许创建首个管理员(否则永远没管理员)
+    with _fresh_app(tmp_path, allow_registration=False) as c:
+        r = c.post("/api/register", json={"username": "boss", "password": "pass1234"})
+        assert r.json()["role"] == "admin"
+        # 但第二个注册被拒(注册已关)
+        assert c.post("/api/register", json={"username": "x", "password": "pass1234"}).status_code == 403
+
+
 def test_registration_can_be_disabled(tmp_path):
     from app.config import Settings
     from app.main import create_app

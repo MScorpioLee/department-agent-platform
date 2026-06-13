@@ -2,7 +2,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from .auth import (
     Principal,
@@ -213,13 +213,30 @@ async def list_users(request: Request) -> list[dict]:
 # ---------- 自助注册 + 管理员审批 ----------
 
 
+@router.get("/api/auth/setup-status")
+async def setup_status(request: Request) -> dict:
+    """首次启动引导:空库(无任何用户)时 needs_setup=True,首个注册者将成为管理员。"""
+    async with request.app.state.sessionmaker() as session:
+        count = (await session.execute(select(func.count(User.id)))).scalar_one()
+    return {
+        "needs_setup": count == 0,
+        "allow_registration": bool(getattr(request.app.state.settings, "allow_registration", True)),
+    }
+
+
 @router.post("/api/register")
 async def register(body: RegisterIn, request: Request) -> dict:
-    """开放自助注册:创建 status=pending 用户,需管理员审批通过后才能登录。"""
+    """自助注册。**首次(空库)注册者直接成为管理员**(active,无需审批);
+
+    之后注册为普通用户(status=pending,需管理员审批)。bootstrap 始终允许,
+    不受 allow_registration 限制(否则空库 + 关闭注册将永远没有管理员)。
+    """
     settings = request.app.state.settings
-    if not getattr(settings, "allow_registration", True):
-        raise HTTPException(403, {"code": "registration_disabled", "message": "本服务器未开放自助注册,请联系管理员建号"})
     async with request.app.state.sessionmaker() as session:
+        count = (await session.execute(select(func.count(User.id)))).scalar_one()
+        is_bootstrap = count == 0
+        if not is_bootstrap and not getattr(settings, "allow_registration", True):
+            raise HTTPException(403, {"code": "registration_disabled", "message": "本服务器未开放自助注册,请联系管理员建号"})
         exists = (
             await session.execute(select(User).where(User.username == body.username))
         ).scalar_one_or_none()
@@ -229,14 +246,17 @@ async def register(body: RegisterIn, request: Request) -> dict:
             id=new_id("u"),
             username=body.username,
             display_name=body.display_name or body.username,
-            role="user",
-            status="pending",
+            role="admin" if is_bootstrap else "user",
+            status="active" if is_bootstrap else "pending",
             note=body.note,
             password_hash=hash_password(body.password),
         )
         session.add(user)
         await session.commit()
-    # 不签发 token;返回待审批态
+    if is_bootstrap:
+        # 首位 = 管理员,直接可用(前端拿到后自动登录)
+        return {"status": "active", "role": "admin", "bootstrap": True,
+                "username": body.username, "message": "管理员账号已创建,可直接登录"}
     return {"status": "pending", "username": body.username, "message": "注册已提交,等待管理员审批"}
 
 
